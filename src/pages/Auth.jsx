@@ -9,8 +9,6 @@ export default function Auth() {
   // Tab state: 'signup' or 'signin'
   const [tab, setTab] = useState('signup')
   
-  // Auth mode: 'password' or 'magic_link'
-  const [authMode, setAuthMode] = useState('password')
   
   // Form state
   const [email, setEmail] = useState('')
@@ -19,7 +17,6 @@ export default function Auth() {
   // UI state
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [magicLinkSent, setMagicLinkSent] = useState(false)
   const [resetEmailSent, setResetEmailSent] = useState(false)
   const [showForgotPassword, setShowForgotPassword] = useState(false)
 
@@ -97,30 +94,6 @@ export default function Auth() {
     }
   }
 
-  // Magic Link: Send email link
-  const handleMagicLink = async (e) => {
-    e.preventDefault()
-    setError(null)
-    setLoading(true)
-
-    try {
-      const { error: magicError } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          emailRedirectTo: `${window.location.origin}/home`,
-        },
-      })
-
-      if (magicError) throw magicError
-
-      setMagicLinkSent(true)
-    } catch (err) {
-      setError(err.message || 'Failed to send magic link.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
   // Forgot password
   const handleForgotPassword = async (e) => {
     e.preventDefault()
@@ -140,38 +113,6 @@ export default function Auth() {
     } finally {
       setLoading(false)
     }
-  }
-
-  // Magic link sent success screen
-  if (magicLinkSent) {
-    return (
-      <div style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 20,
-        textAlign: 'center'
-      }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>📧</div>
-        <h1 style={{ fontSize: 24, color: 'var(--primary-color)', marginBottom: 8 }}>
-          Check your email
-        </h1>
-        <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginBottom: 24 }}>
-          We sent a {tab === 'signup' ? 'confirmation' : 'login'} link to <strong>{email}</strong>
-        </p>
-        <button
-          onClick={() => {
-            setMagicLinkSent(false)
-            setTab('signin')
-          }}
-          className="secondary"
-        >
-          ← Back to login
-        </button>
-      </div>
-    )
   }
 
   // Forgot password screen
@@ -296,7 +237,6 @@ export default function Auth() {
           onClick={() => {
             setTab('signup')
             setError(null)
-            setAuthMode('password')
           }}
           style={{
             flex: 1,
@@ -317,7 +257,6 @@ export default function Auth() {
           onClick={() => {
             setTab('signin')
             setError(null)
-            setAuthMode('password')
           }}
           style={{
             flex: 1,
@@ -455,82 +394,7 @@ export default function Auth() {
         </button>
       </form>
 
-      {/* Magic Link Toggle */}
-      <div style={{ marginTop: 20, textAlign: 'center' }}>
-        <button
-          onClick={() => {
-            setAuthMode(authMode === 'password' ? 'magic_link' : 'password')
-            setError(null)
-          }}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: 'var(--primary-color)',
-            fontSize: 13,
-            fontWeight: 500,
-            cursor: 'pointer',
-            padding: 0,
-            textDecoration: 'underline',
-          }}
-        >
-          {authMode === 'password' ? 'Use magic link instead' : 'Use password instead'}
-        </button>
-      </div>
 
-      {/* Magic Link Form (Hidden by default, shown when toggled) */}
-      {authMode === 'magic_link' && (
-        <form onSubmit={handleMagicLink} style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 20 }}>
-          {error && (
-            <div style={{
-              padding: '12px 16px',
-              backgroundColor: 'rgba(239, 68, 68, 0.1)',
-              border: '1px solid rgba(239, 68, 68, 0.3)',
-              borderRadius: 12,
-              color: '#ef4444',
-              fontSize: 14,
-            }}>
-              {error}
-            </div>
-          )}
-
-          <div>
-            <label htmlFor="magic-email" style={{
-              display: 'block',
-              fontSize: 13,
-              fontWeight: 600,
-              marginBottom: 6,
-              color: 'var(--text-secondary)',
-            }}>
-              Email
-            </label>
-            <input
-              id="magic-email"
-              type="email"
-              placeholder="you@example.com"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '12px 14px',
-                fontSize: 15,
-                borderRadius: 10,
-                border: '1px solid var(--border)',
-                backgroundColor: 'var(--surface)',
-                outline: 'none',
-                boxSizing: 'border-box',
-              }}
-            />
-            <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6, margin: '6px 0 0 0' }}>
-              We'll send you a link to sign in instantly
-            </p>
-          </div>
-
-          <button type="submit" disabled={loading} style={{ opacity: loading ? 0.7 : 1, padding: '14px 16px', fontSize: 15, fontWeight: 600, borderRadius: 10, border: 'none', backgroundColor: 'var(--primary-color)', color: 'white', cursor: loading ? 'not-allowed' : 'pointer' }}>
-            {loading ? 'Sending...' : 'Send Magic Link'}
-          </button>
-        </form>
-      )}
 
       {/* Back to Home */}
       <div style={{ marginTop: 32, textAlign: 'center' }}>
