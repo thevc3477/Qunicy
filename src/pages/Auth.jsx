@@ -6,9 +6,11 @@ export default function Auth() {
   const navigate = useNavigate()
   const location = useLocation()
   
+  // Tab state: 'signup' or 'signin'
+  const [tab, setTab] = useState('signup')
+  
   // Auth mode: 'password' or 'magic_link'
   const [authMode, setAuthMode] = useState('password')
-  const [isSignUp, setIsSignUp] = useState(false)
   
   // Form state
   const [email, setEmail] = useState('')
@@ -23,7 +25,6 @@ export default function Auth() {
 
   // Helper: Ensure profile exists and check onboarding
   const handleAuthSuccess = async (session) => {
-    // First, ensure profile row exists (create if not)
     const { data: existingProfile } = await supabase
       .from('profiles')
       .select('id, username, onboarding_completed')
@@ -31,7 +32,6 @@ export default function Auth() {
       .maybeSingle()
 
     if (!existingProfile) {
-      // Create profile row for new user
       await supabase.from('profiles').insert({
         id: session.user.id,
         onboarding_completed: false,
@@ -41,14 +41,12 @@ export default function Auth() {
 
     const profile = existingProfile || { onboarding_completed: false }
 
-    localStorage.setItem('quincy_logged_in', 'true')
     localStorage.setItem('quincy_user', JSON.stringify({
       id: session.user.id,
       email: session.user.email,
       username: profile?.username || '',
     }))
 
-    // Check if first-time user (onboarding not completed)
     const isFirstTimeUser = !profile?.onboarding_completed || !profile?.username
     
     if (isFirstTimeUser) {
@@ -68,20 +66,17 @@ export default function Auth() {
     try {
       let result
       
-      if (isSignUp) {
-        // Sign up
+      if (tab === 'signup') {
         result = await supabase.auth.signUp({ email, password })
         if (result.error) throw result.error
         
-        // Check if email confirmation is required
         if (result.data?.user && !result.data?.session) {
           setError(null)
-          setMagicLinkSent(true) // Reuse this UI for "check your email"
+          setMagicLinkSent(true)
           setLoading(false)
           return
         }
       } else {
-        // Sign in
         result = await supabase.auth.signInWithPassword({ email, password })
         if (result.error) throw result.error
       }
@@ -91,7 +86,9 @@ export default function Auth() {
       }
     } catch (err) {
       if (err.message?.includes('Invalid login credentials')) {
-        setError('Invalid email or password. Need an account? Click "Create account" below.')
+        setError('Invalid email or password.')
+      } else if (err.message?.includes('already registered')) {
+        setError('This email is already registered. Please sign in instead.')
       } else {
         setError(err.message || 'Authentication failed. Please try again.')
       }
@@ -162,12 +159,12 @@ export default function Auth() {
           Check your email
         </h1>
         <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginBottom: 24 }}>
-          We sent a {isSignUp ? 'confirmation' : 'login'} link to <strong>{email}</strong>
+          We sent a {tab === 'signup' ? 'confirmation' : 'login'} link to <strong>{email}</strong>
         </p>
         <button
           onClick={() => {
             setMagicLinkSent(false)
-            setIsSignUp(false)
+            setTab('signin')
           }}
           className="secondary"
         >
@@ -266,7 +263,7 @@ export default function Auth() {
     )
   }
 
-  // Main auth screen
+  // Main auth screen - REDESIGNED FOR CLARITY
   return (
     <div style={{
       minHeight: '100vh',
@@ -275,106 +272,214 @@ export default function Auth() {
       justifyContent: 'center',
       padding: 20
     }}>
+      {/* Header */}
       <div style={{ textAlign: 'center', marginBottom: 32 }}>
-        <h1 style={{ fontSize: 28, color: 'var(--primary-color)' }}>Welcome to Quincy</h1>
-        <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginTop: 8 }}>
-          {isSignUp ? 'Create your account' : 'Sign in to your account'}
+        <h1 style={{ fontSize: 32, fontWeight: 700, color: 'var(--primary-color)', margin: '0 0 8px 0' }}>
+          Quincy
+        </h1>
+        <p style={{ fontSize: 15, color: 'var(--text-secondary)', margin: 0 }}>
+          Discover music lovers at your favorite events
         </p>
       </div>
 
-      {/* Email/Password Form */}
-      {authMode === 'password' && (
-        <form onSubmit={handleEmailAuth} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {error && (
-            <div style={{
-              padding: '12px 16px',
-              backgroundColor: 'rgba(239, 68, 68, 0.1)',
-              border: '1px solid rgba(239, 68, 68, 0.3)',
-              borderRadius: 12,
-              color: '#ef4444',
-              fontSize: 14,
-            }}>
-              {error}
-            </div>
-          )}
+      {/* Tab Switcher */}
+      <div style={{
+        display: 'flex',
+        gap: 12,
+        marginBottom: 32,
+        backgroundColor: 'var(--surface)',
+        padding: 4,
+        borderRadius: 12,
+        border: '1px solid var(--border)',
+      }}>
+        <button
+          onClick={() => {
+            setTab('signup')
+            setError(null)
+            setAuthMode('password')
+          }}
+          style={{
+            flex: 1,
+            padding: '12px 16px',
+            fontSize: 14,
+            fontWeight: 600,
+            border: 'none',
+            borderRadius: 10,
+            backgroundColor: tab === 'signup' ? 'var(--primary-color)' : 'transparent',
+            color: tab === 'signup' ? 'white' : 'var(--text-secondary)',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+          }}
+        >
+          Sign Up
+        </button>
+        <button
+          onClick={() => {
+            setTab('signin')
+            setError(null)
+            setAuthMode('password')
+          }}
+          style={{
+            flex: 1,
+            padding: '12px 16px',
+            fontSize: 14,
+            fontWeight: 600,
+            border: 'none',
+            borderRadius: 10,
+            backgroundColor: tab === 'signin' ? 'var(--primary-color)' : 'transparent',
+            color: tab === 'signin' ? 'white' : 'var(--text-secondary)',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+          }}
+        >
+          Sign In
+        </button>
+      </div>
 
-          <div>
-            <label htmlFor="email" style={{
-              display: 'block',
-              fontSize: 14,
-              fontWeight: 600,
-              marginBottom: 8,
-            }}>
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              placeholder="Enter your email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '14px 16px',
-                fontSize: 16,
-                borderRadius: 12,
-                border: '1px solid var(--border)',
-                backgroundColor: 'var(--surface)',
-                outline: 'none',
-              }}
-            />
+      {/* Form Container */}
+      <form onSubmit={handleEmailAuth} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {error && (
+          <div style={{
+            padding: '12px 16px',
+            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            borderRadius: 12,
+            color: '#ef4444',
+            fontSize: 14,
+          }}>
+            {error}
           </div>
+        )}
 
-          <div>
-            <label htmlFor="password" style={{
-              display: 'block',
-              fontSize: 14,
-              fontWeight: 600,
-              marginBottom: 8,
-            }}>
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              placeholder={isSignUp ? 'Create a password (min 6 characters)' : 'Enter your password'}
-              required
-              minLength={6}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '14px 16px',
-                fontSize: 16,
-                borderRadius: 12,
-                border: '1px solid var(--border)',
-                backgroundColor: 'var(--surface)',
-                outline: 'none',
-              }}
-            />
-          </div>
+        {/* Email Input */}
+        <div>
+          <label htmlFor="email" style={{
+            display: 'block',
+            fontSize: 13,
+            fontWeight: 600,
+            marginBottom: 6,
+            color: 'var(--text-secondary)',
+          }}>
+            Email
+          </label>
+          <input
+            id="email"
+            type="email"
+            placeholder="you@example.com"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '12px 14px',
+              fontSize: 15,
+              borderRadius: 10,
+              border: '1px solid var(--border)',
+              backgroundColor: 'var(--surface)',
+              outline: 'none',
+              boxSizing: 'border-box',
+            }}
+          />
+        </div>
 
-          <button type="submit" disabled={loading} style={{ opacity: loading ? 0.7 : 1 }}>
-            {loading ? (isSignUp ? 'Creating account...' : 'Signing in...') : (isSignUp ? 'Create Account' : 'Sign In')}
+        {/* Password Input */}
+        <div>
+          <label htmlFor="password" style={{
+            display: 'block',
+            fontSize: 13,
+            fontWeight: 600,
+            marginBottom: 6,
+            color: 'var(--text-secondary)',
+          }}>
+            Password
+          </label>
+          <input
+            id="password"
+            type="password"
+            placeholder={tab === 'signup' ? 'Min 6 characters' : 'Enter your password'}
+            required
+            minLength={6}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '12px 14px',
+              fontSize: 15,
+              borderRadius: 10,
+              border: '1px solid var(--border)',
+              backgroundColor: 'var(--surface)',
+              outline: 'none',
+              boxSizing: 'border-box',
+            }}
+          />
+        </div>
+
+        {/* Forgot Password Link (only on sign-in) */}
+        {tab === 'signin' && (
+          <button
+            type="button"
+            onClick={() => setShowForgotPassword(true)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--primary-color)',
+              fontSize: 13,
+              fontWeight: 500,
+              cursor: 'pointer',
+              padding: 0,
+              textAlign: 'left',
+            }}
+          >
+            Forgot password?
           </button>
+        )}
 
-          {!isSignUp && (
-            <button
-              type="button"
-              onClick={() => setShowForgotPassword(true)}
-              className="secondary"
-              style={{ fontSize: 14 }}
-            >
-              Forgot password?
-            </button>
-          )}
-        </form>
-      )}
+        {/* Primary CTA Button */}
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            padding: '14px 16px',
+            fontSize: 15,
+            fontWeight: 600,
+            borderRadius: 10,
+            border: 'none',
+            backgroundColor: 'var(--primary-color)',
+            color: 'white',
+            cursor: loading ? 'not-allowed' : 'pointer',
+            opacity: loading ? 0.7 : 1,
+            marginTop: 8,
+          }}
+        >
+          {loading ? (tab === 'signup' ? 'Creating account...' : 'Signing in...') : (tab === 'signup' ? 'Create Account' : 'Sign In')}
+        </button>
+      </form>
 
-      {/* Magic Link Form */}
+      {/* Magic Link Toggle */}
+      <div style={{ marginTop: 20, textAlign: 'center' }}>
+        <button
+          onClick={() => {
+            setAuthMode(authMode === 'password' ? 'magic_link' : 'password')
+            setError(null)
+          }}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'var(--primary-color)',
+            fontSize: 13,
+            fontWeight: 500,
+            cursor: 'pointer',
+            padding: 0,
+            textDecoration: 'underline',
+          }}
+        >
+          {authMode === 'password' ? 'Use magic link instead' : 'Use password instead'}
+        </button>
+      </div>
+
+      {/* Magic Link Form (Hidden by default, shown when toggled) */}
       {authMode === 'magic_link' && (
-        <form onSubmit={handleMagicLink} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <form onSubmit={handleMagicLink} style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 20 }}>
           {error && (
             <div style={{
               padding: '12px 16px',
@@ -391,123 +496,45 @@ export default function Auth() {
           <div>
             <label htmlFor="magic-email" style={{
               display: 'block',
-              fontSize: 14,
+              fontSize: 13,
               fontWeight: 600,
-              marginBottom: 8,
+              marginBottom: 6,
+              color: 'var(--text-secondary)',
             }}>
               Email
             </label>
             <input
               id="magic-email"
               type="email"
-              placeholder="Enter your email"
+              placeholder="you@example.com"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               style={{
                 width: '100%',
-                padding: '14px 16px',
-                fontSize: 16,
-                borderRadius: 12,
+                padding: '12px 14px',
+                fontSize: 15,
+                borderRadius: 10,
                 border: '1px solid var(--border)',
                 backgroundColor: 'var(--surface)',
                 outline: 'none',
+                boxSizing: 'border-box',
               }}
             />
-            <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 8 }}>
-              We'll send you a magic link to sign in instantly
+            <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6, margin: '6px 0 0 0' }}>
+              We'll send you a link to sign in instantly
             </p>
           </div>
 
-          <button type="submit" disabled={loading} style={{ opacity: loading ? 0.7 : 1 }}>
+          <button type="submit" disabled={loading} style={{ opacity: loading ? 0.7 : 1, padding: '14px 16px', fontSize: 15, fontWeight: 600, borderRadius: 10, border: 'none', backgroundColor: 'var(--primary-color)', color: 'white', cursor: loading ? 'not-allowed' : 'pointer' }}>
             {loading ? 'Sending...' : 'Send Magic Link'}
           </button>
         </form>
       )}
 
-      {/* Toggle between password and magic link */}
-      <div style={{ marginTop: 24, textAlign: 'center' }}>
-        <button
-          onClick={() => {
-            setAuthMode(authMode === 'password' ? 'magic_link' : 'password')
-            setError(null)
-          }}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: 'var(--primary-color)',
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: 'pointer',
-            padding: 0,
-            textDecoration: 'underline',
-          }}
-        >
-          {authMode === 'password' ? 'Use magic link instead' : 'Use password instead'}
-        </button>
-      </div>
-
-      {/* Sign up for free banner (when in sign-in mode) */}
-      {authMode === 'password' && !isSignUp && (
-        <div style={{
-          marginTop: 24,
-          padding: '16px 20px',
-          backgroundColor: 'rgba(99, 102, 241, 0.08)',
-          borderRadius: 12,
-          textAlign: 'center',
-        }}>
-          <p style={{ fontSize: 14, color: 'var(--text-secondary)', margin: 0 }}>
-            New to Quincy?
-          </p>
-          <button
-            onClick={() => {
-              setIsSignUp(true)
-              setError(null)
-            }}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: 'var(--primary-color)',
-              fontSize: 16,
-              fontWeight: 700,
-              cursor: 'pointer',
-              padding: 0,
-              marginTop: 4,
-            }}
-          >
-            Sign up for free →
-          </button>
-        </div>
-      )}
-
-      {/* Back to sign in (when in sign-up mode) */}
-      {authMode === 'password' && isSignUp && (
-        <div style={{ marginTop: 20, textAlign: 'center' }}>
-          <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
-            Already have an account?{' '}
-            <button
-              onClick={() => {
-                setIsSignUp(false)
-                setError(null)
-              }}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--primary-color)',
-                fontSize: 14,
-                fontWeight: 600,
-                cursor: 'pointer',
-                padding: 0,
-              }}
-            >
-              Sign in
-            </button>
-          </p>
-        </div>
-      )}
-
-      <div style={{ marginTop: 24, textAlign: 'center' }}>
-        <Link to="/" style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+      {/* Back to Home */}
+      <div style={{ marginTop: 32, textAlign: 'center' }}>
+        <Link to="/" style={{ fontSize: 13, color: 'var(--text-secondary)', textDecoration: 'none' }}>
           ← Back to Home
         </Link>
       </div>
