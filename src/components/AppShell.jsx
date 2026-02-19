@@ -1,22 +1,25 @@
 import { useLocation } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import Header from './Header'
 import BottomNav from './BottomNav'
 
 export default function AppShell({ children }) {
   const location = useLocation()
-  const isAuthPage = location.pathname === '/login' || location.pathname === '/signup'
+  const { user } = useAuth()
+  const hideChrome = ['/auth', '/onboarding'].includes(location.pathname)
+  const showNav = user && !hideChrome
 
   return (
     <>
-      {!isAuthPage && <Header />}
+      {!hideChrome && <Header />}
       <main style={{
         flex: 1,
         overflowY: 'auto',
-        backgroundColor: isAuthPage ? 'var(--surface)' : 'var(--background)',
+        backgroundColor: hideChrome ? 'var(--surface)' : 'var(--background)',
       }}>
         {children}
       </main>
-      <BottomNav />
+      {showNav && <BottomNav />}
     </>
   )
 }

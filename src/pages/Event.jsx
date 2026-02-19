@@ -1,312 +1,158 @@
 import { useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import QuickRsvpModal from '../components/QuickRsvpModal'
+import { useAuth } from '../context/AuthContext'
+import { fetchActiveEvent, upsertRsvp } from '../lib/rsvp'
+import { downloadCalendarInvite } from '../lib/calendar'
+import Walkthrough from '../components/Walkthrough'
 
 export default function Event() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [event, setEvent] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isRsvping, setIsRsvping] = useState(false)
   const [isRsvped, setIsRsvped] = useState(false)
-  const [rsvpSuccess, setRsvpSuccess] = useState(false)
+  const [celebrating, setCelebrating] = useState(false)
   const [rsvpError, setRsvpError] = useState(null)
-  const [showRsvpModal, setShowRsvpModal] = useState(false)
-  const [displayName, setDisplayName] = useState('')
-  const [instagramHandle, setInstagramHandle] = useState('')
-  const [pendingUserId, setPendingUserId] = useState(null)
-
-  const loadEvent = async () => {
-    const { data, error } = await supabase
-      .from('events')
-      .select('id, title, starts_at, venue_name, city, is_active')
-      .eq('is_active', true)
-      .order('starts_at', { ascending: true })
-      .limit(1)
-      .maybeSingle()
-
-    if (!error) {
-      setEvent(data)
-    } else {
-      console.error('Failed to load event:', error)
-    }
-    setIsLoading(false)
-    return data
-  }
+  const [attendeeCount, setAttendeeCount] = useState(0)
 
   useEffect(() => {
-    loadEvent()
-  }, [])
-
-  useEffect(() => {
-    const checkRsvp = async () => {
-      if (!event?.id) return
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.user) return
-
-      const { data: rsvp } = await supabase
-        .from('rsvps')
-        .select('status')
-        .eq('event_id', event.id)
-        .eq('user_id', session.user.id)
-        .maybeSingle()
-
-      if (rsvp?.status === 'going') {
-        setIsRsvped(true)
-      }
-    }
-
-    checkRsvp()
-  }, [event?.id])
-
-  const eventName = event?.title || 'Upcoming Vinyl Collectiv Event'
-  const eventDate = event?.starts_at ? new Date(event.starts_at) : null
-  const dateLabel = eventDate ? eventDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : 'TBD'
-  const timeLabel = eventDate ? eventDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'TBD'
-
-  const formatRsvpError = (error) => {
-    if (!error) return 'Could not complete RSVP. Please try again.'
-    const message = error.message || String(error)
-    if (/permission denied/i.test(message)) {
-      return 'RSVP permissions are missing in Supabase. Please add an insert policy for rsvps.'
-    }
-    return message
-  }
-
-  const finalizeRsvp = async ({ userId, activeEvent, profilePayload }) => {
-    if (profilePayload) {
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .upsert({
-          id: userId,
-          display_name: profilePayload.display_name,
-          instagram_handle: profilePayload.instagram_handle || null,
-        })
-
-      if (profileError) {
-        console.error('Failed to update profile:', profileError)
-        setRsvpError(formatRsvpError(profileError))
-        return false
-      }
-    }
-
-    const { error: rsvpError } = await supabase
-      .from('rsvps')
-      .upsert(
-        {
-          event_id: activeEvent.id,
-          user_id: userId,
-          status: 'going',
-          source: 'quincy',
-        },
-        { onConflict: 'event_id,user_id' }
-      )
-
-    if (rsvpError) {
-      console.error('Failed to RSVP:', rsvpError)
-      setRsvpError(formatRsvpError(rsvpError))
-      return false
-    }
-
-    localStorage.setItem('quincy_rsvp', 'true')
-    localStorage.setItem('quincy_event_name', activeEvent.title || eventName)
-    return true
-  }
-
-  const getActiveSession = async () => {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (session?.user) return session
-    const { data: { session: refreshed } } = await supabase.auth.refreshSession()
-    return refreshed || null
-  }
-
-  const handleRsvpFree = async () => {
-    try {
-      setRsvpError(null)
-      setIsRsvping(true)
-      const session = await getActiveSession()
-
-      if (!session?.user) {
-        navigate('/auth', { state: { from: { pathname: '/event' } } })
-        setIsRsvping(false)
-        return
-      }
-
-      const activeEvent = event || await loadEvent()
-      if (!activeEvent) {
-        setRsvpError('No active event to RSVP for right now.')
-        setIsRsvping(false)
-        return
-      }
-
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('display_name, instagram_handle')
-        .eq('id', session.user.id)
-        .maybeSingle()
-
-      if (profileError) {
-        console.error('Failed to fetch profile:', profileError)
-      }
-
-      if (!profile?.display_name) {
-        setPendingUserId(session.user.id)
-        const storedUser = localStorage.getItem('quincy_user')
-        if (storedUser) {
-          try {
-            const parsed = JSON.parse(storedUser)
-            setDisplayName(parsed?.username || '')
-          } catch (_) {
-            setDisplayName('')
-          }
+    const load = async () => {
+      const { data } = await fetchActiveEvent()
+      if (data) {
+        setEvent(data)
+        // Check RSVP status
+        if (user) {
+          const { data: rsvp } = await supabase
+            .from('rsvps')
+            .select('id')
+            .eq('event_id', data.id)
+            .eq('user_id', user.id)
+            .maybeSingle()
+          if (rsvp) setIsRsvped(true)
         }
-        setShowRsvpModal(true)
-        setIsRsvping(false)
-        return
+        // Count attendees
+        const { count } = await supabase
+          .from('rsvps')
+          .select('id', { count: 'exact', head: true })
+          .eq('event_id', data.id)
+          .eq('status', 'going')
+        setAttendeeCount(count || 0)
       }
-
-      const success = await finalizeRsvp({
-        userId: session.user.id,
-        activeEvent,
-      })
-
-      setIsRsvping(false)
-    if (success) {
-      setIsRsvped(true)
-      setRsvpSuccess(true)
-        setRsvpError(null)
-      setTimeout(() => {
-        navigate('/records')
-      }, 700)
+      setIsLoading(false)
     }
-    } catch (err) {
-      console.error('RSVP error:', err)
-      setRsvpError(formatRsvpError(err))
-      setIsRsvping(false)
-    }
-  }
+    load()
+  }, [user])
 
-  const handleQuickRsvpSubmit = async () => {
-    const trimmedName = displayName.trim()
-    if (!trimmedName) {
-      alert('Display name is required.')
+  const eventDate = event?.starts_at ? new Date(event.starts_at) : null
+  const now = new Date()
+  const daysAway = eventDate ? Math.max(0, Math.ceil((eventDate - now) / (1000 * 60 * 60 * 24))) : null
+
+  const handleRsvp = async () => {
+    if (!user) {
+      navigate('/auth', { state: { from: { pathname: '/event' } } })
       return
     }
-
-    if (!pendingUserId) {
-      alert('Missing user session. Please try again.')
-      return
-    }
+    if (!event) return
 
     setIsRsvping(true)
     setRsvpError(null)
-    const activeEvent = event || await loadEvent()
-    if (!activeEvent) {
-      setRsvpError('No active event to RSVP for right now.')
+
+    const { error } = await upsertRsvp({ eventId: event.id, userId: user.id })
+    if (error) {
+      setRsvpError(error.message || 'Could not RSVP.')
       setIsRsvping(false)
       return
     }
 
-    const success = await finalizeRsvp({
-      userId: pendingUserId,
-      activeEvent,
-      profilePayload: {
-        display_name: trimmedName,
-        instagram_handle: instagramHandle.trim() || null,
-      },
-    })
+    setIsRsvped(true)
+    setCelebrating(true)
+    setAttendeeCount(prev => prev + 1)
 
-    setIsRsvping(false)
-    if (success) {
-      setIsRsvped(true)
-      setRsvpSuccess(true)
-      setRsvpError(null)
-      setShowRsvpModal(false)
-      setDisplayName('')
-      setInstagramHandle('')
-      setTimeout(() => {
-        navigate('/records')
-      }, 700)
-    }
+    setTimeout(() => {
+      setCelebrating(false)
+    }, 2000)
   }
+
+  const dateLabel = eventDate
+    ? eventDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+    : 'TBD'
+  const timeLabel = eventDate
+    ? eventDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    : 'TBD'
 
   return (
     <div style={{ padding: 20 }}>
-      <h1 style={{ fontSize: 24, marginBottom: 20 }}>Vinyl Collectiv Events</h1>
+      {isRsvped && <Walkthrough />}
+      <h1 style={{ fontSize: 24, marginBottom: 20 }}>Vinyl Collectiv</h1>
+
+      {/* Countdown banner */}
+      {event && (
+        <div style={{
+          textAlign: 'center', padding: '16px 20px', marginBottom: 20,
+          background: 'linear-gradient(135deg, var(--primary-color), var(--primary-dark))',
+          borderRadius: 16, color: 'white',
+        }}>
+          <p style={{ fontSize: 18, fontWeight: 700, margin: '0 0 4px 0' }}>
+            🔥 {attendeeCount} people going {daysAway !== null && `· ${daysAway} day${daysAway === 1 ? '' : 's'} away`}
+          </p>
+        </div>
+      )}
 
       <div className="card" style={{ marginBottom: 16 }}>
-        <h2 style={{ fontSize: 20, marginBottom: 20 }}>{eventName}</h2>
-
+        <h2 style={{ fontSize: 20, marginBottom: 20 }}>{event?.title || 'Upcoming Event'}</h2>
         <div style={{ marginBottom: 16 }}>
-          <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4, textTransform: 'uppercase', fontWeight: 600 }}>
-            Date & Time
-          </p>
-          <p style={{ fontSize: 15 }}>{dateLabel}</p>
-          <p style={{ fontSize: 15, color: 'var(--text-secondary)' }}>{timeLabel}</p>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4, textTransform: 'uppercase', fontWeight: 600 }}>Date & Time</p>
+          <p style={{ fontSize: 15, margin: 0 }}>{dateLabel}</p>
+          <p style={{ fontSize: 15, color: 'var(--text-secondary)', margin: 0 }}>{timeLabel}</p>
         </div>
-
         <div>
-          <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4, textTransform: 'uppercase', fontWeight: 600 }}>
-            Location
-          </p>
-          <p style={{ fontSize: 15 }}>{event?.venue_name || 'Vinyl Collectiv HQ'}</p>
-          <p style={{ fontSize: 15, color: 'var(--text-secondary)' }}>{event?.city || 'San Francisco, CA'}</p>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4, textTransform: 'uppercase', fontWeight: 600 }}>Location</p>
+          <p style={{ fontSize: 15, margin: 0 }}>{event?.venue_name || 'TBD'}</p>
+          <p style={{ fontSize: 15, color: 'var(--text-secondary)', margin: 0 }}>{event?.city || ''}</p>
         </div>
       </div>
+
+      {/* Celebration overlay */}
+      {celebrating && (
+        <div className="rsvp-celebration">
+          <div style={{ fontSize: 64 }}>🎉</div>
+          <h2 style={{ fontSize: 24, color: 'white', marginTop: 16 }}>You're in!</h2>
+          <p style={{ color: 'rgba(255,255,255,0.8)' }}>Taking you to upload your vinyl...</p>
+        </div>
+      )}
 
       <div className="card" style={{ padding: 16 }}>
         <h3 style={{ fontSize: 16, marginBottom: 8 }}>RSVP is free</h3>
         <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 16 }}>
-          Lock in your spot and start sharing the record you’re bringing.
+          Lock in your spot and start sharing the record you're bringing.
         </p>
         {rsvpError && (
-          <div style={{
-            padding: '10px 12px',
-            borderRadius: 12,
-            backgroundColor: 'rgba(239, 68, 68, 0.1)',
-            color: '#ef4444',
-            fontSize: 13,
-            marginBottom: 12,
-          }}>
+          <div style={{ padding: '10px 12px', borderRadius: 12, backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', fontSize: 13, marginBottom: 12 }}>
             {rsvpError}
           </div>
         )}
-        {rsvpSuccess && (
-          <div style={{
-            padding: '10px 12px',
-            borderRadius: 12,
-            backgroundColor: 'rgba(16, 185, 129, 0.12)',
-            color: '#059669',
-            fontSize: 13,
-            marginBottom: 12,
-          }}>
-            RSVP confirmed 🎉 See you there!
-          </div>
-        )}
-        <button
-          onClick={handleRsvpFree}
-          disabled={isLoading || isRsvping || isRsvped}
-          style={{
-            width: '100%',
-            backgroundColor: isRsvped ? '#16a34a' : undefined,
-            color: isRsvped ? 'white' : undefined,
-          }}
-        >
-          {isRsvped ? 'RSVP Confirmed 🎉' : (isRsvping ? 'Saving RSVP...' : 'RSVP Free')}
+        <button onClick={handleRsvp} disabled={isLoading || isRsvping || isRsvped}
+          style={{ width: '100%', backgroundColor: isRsvped ? '#16a34a' : undefined }}>
+          {isRsvped ? 'RSVP Confirmed 🎉' : (isRsvping ? 'Saving...' : 'RSVP Free')}
         </button>
+        {isRsvped && event && (
+          <button
+            onClick={() => downloadCalendarInvite(event)}
+            style={{
+              width: '100%',
+              marginTop: 10,
+              backgroundColor: 'transparent',
+              border: '1.5px solid var(--primary-color)',
+              color: 'var(--primary-color)',
+              cursor: 'pointer',
+            }}
+          >
+            📅 Add to Calendar
+          </button>
+        )}
       </div>
-
-      <QuickRsvpModal
-        isOpen={showRsvpModal}
-        displayName={displayName}
-        instagramHandle={instagramHandle}
-        onDisplayNameChange={setDisplayName}
-        onInstagramHandleChange={setInstagramHandle}
-        onSubmit={handleQuickRsvpSubmit}
-        onClose={() => setShowRsvpModal(false)}
-        loading={isRsvping}
-        error={null}
-      />
     </div>
   )
 }

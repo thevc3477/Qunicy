@@ -106,3 +106,67 @@ button.secondary:hover {
   border-color: var(--primary-color);
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
 }
+
+/* Swipe card */
+.swipe-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 16px;
+  transition: transform 0.15s ease;
+  touch-action: pan-y;
+  user-select: none;
+}
+
+/* Match overlay */
+.match-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(99, 102, 241, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: matchFadeIn 0.4s ease;
+}
+
+.match-overlay-content {
+  text-align: center;
+  animation: matchBounce 0.6s ease;
+}
+
+@keyframes matchFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes matchBounce {
+  0% { transform: scale(0.5); opacity: 0; }
+  60% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* RSVP celebration */
+.rsvp-celebration {
+  position: fixed;
+  inset: 0;
+  background: rgba(22, 163, 74, 0.92);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: matchFadeIn 0.3s ease;
+}
+
+/* Vibe card tag */
+.vibe-card-tag {
+  display: inline-block;
+  padding: 4px 10px;
+  background: rgba(99, 102, 241, 0.08);
+  color: var(--primary-color);
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}

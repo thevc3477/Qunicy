@@ -1,131 +1,175 @@
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { useEffect, useState } from 'react';
-import { supabase } from './lib/supabase';
-import AppShell from './components/AppShell';
-import Home from './pages/Home';
-import Auth from './pages/Auth';
-import NewOnboarding from './pages/NewOnboarding';
-import Onboarding from './pages/Onboarding';
-import Records from './pages/Records';
-import RecordDetail from './pages/RecordDetail';
-import Event from './pages/Event';
-import People from './pages/People';
-import ProfileDetail from './pages/ProfileDetail';
-import MyProfile from './pages/MyProfile';
-import Chat from './pages/Chat';
+import { Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useAuth } from './context/AuthContext'
+import { supabase } from './lib/supabase'
+import AppShell from './components/AppShell'
+import Auth from './pages/Auth'
+import NewOnboarding from './pages/NewOnboarding'
+import Records from './pages/Records'
+import RecordDetail from './pages/RecordDetail'
+import Event from './pages/Event'
+import ProfileDetail from './pages/ProfileDetail'
+import MyProfile from './pages/MyProfile'
+import Chat from './pages/Chat'
+import Swipe from './pages/Swipe'
+import Matches from './pages/Matches'
 
-// This custom hook will be the single source of truth for the user's progress
-function useUserStatus() {
-  const [status, setStatus] = useState({
-    isLoggedIn: false,
-    onboardingComplete: false,
-    hasRSVP: false,
-    hasUploadedRecord: false,
-    loading: true,
-  });
-
-  useEffect(() => {
-    const checkStatus = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      const isLoggedIn = !!session?.user;
-
-      if (!isLoggedIn) {
-        setStatus({ isLoggedIn: false, onboardingComplete: false, hasRSVP: false, hasUploadedRecord: false, loading: false });
-        return;
-      }
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('onboarding_completed, has_rsvped, has_uploaded_record')
-        .eq('id', session.user.id)
-        .maybeSingle();
-
-      setStatus({
-        isLoggedIn: true,
-        onboardingComplete: profile?.onboarding_completed === true,
-        hasRSVP: profile?.has_rsvped === true,
-        hasUploadedRecord: profile?.has_uploaded_record === true,
-        loading: false,
-      });
-    };
-
-    checkStatus();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(checkStatus);
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
-
-  return status;
+function RootRedirect() {
+  const { user, profile, loading } = useAuth()
+  if (loading) return <LoadingScreen />
+  if (!user) return <Navigate to="/auth" replace />
+  if (!profile?.onboarding_completed) return <Navigate to="/onboarding" replace />
+  return <Navigate to="/event" replace />
 }
 
-function ProtectedRoute({ children }) {
-  const status = useUserStatus();
-  const location = useLocation();
+function LoadingScreen() {
+  return (
+    <div style={{ padding: 20, textAlign: 'center', marginTop: 40 }}>
+      <p style={{ color: 'var(--text-secondary)' }}>Loading...</p>
+    </div>
+  )
+}
 
-  if (status.loading) {
-    return (
-      <div style={{ padding: 20, textAlign: 'center' }}>
-        <p style={{ color: 'var(--text-secondary)' }}>Loading...</p>
-      </div>
-    );
-  }
+function RequireAuth() {
+  const { user, loading } = useAuth()
+  const location = useLocation()
+  if (loading) return <LoadingScreen />
+  if (!user) return <Navigate to="/auth" state={{ from: location }} replace />
+  return <Outlet />
+}
 
-  // Gating logic based on the user's progress
-  if (!status.isLoggedIn) {
-    return <Navigate to="/auth" state={{ from: location }} replace />;
-  }
-  if (!status.onboardingComplete) {
-    return <Navigate to="/onboarding" replace />;
-  }
+function RequireOnboarded() {
+  const { user, profile, loading } = useAuth()
+  const location = useLocation()
+  if (loading) return <LoadingScreen />
+  if (!user) return <Navigate to="/auth" state={{ from: location }} replace />
+  if (!profile?.onboarding_completed) return <Navigate to="/onboarding" replace />
+  return <Outlet />
+}
 
-  // Gating for RSVP and Vinyl upload
-  const vinylGatedRoutes = ['/people', '/chat'];
-  const rsvpGatedRoutes = ['/records', '/me'];
+function RequireNotOnboarded() {
+  const { user, profile, loading } = useAuth()
+  if (loading) return <LoadingScreen />
+  if (!user) return <Navigate to="/auth" replace />
+  if (profile?.onboarding_completed) return <Navigate to="/event" replace />
+  return <Outlet />
+}
 
-  if (vinylGatedRoutes.some(path => location.pathname.startsWith(path))) {
-    if (!status.hasRSVP) {
-        return <Navigate to="/event" replace />;
+function RequireRsvp() {
+  const { user, profile, loading } = useAuth()
+  const location = useLocation()
+  const [checking, setChecking] = useState(true)
+  const [hasRsvp, setHasRsvp] = useState(false)
+
+  useEffect(() => {
+    if (loading || !user) return
+    const check = async () => {
+      const { data: event } = await supabase
+        .from('events')
+        .select('id')
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle()
+      if (!event) { setChecking(false); return }
+      const { data: rsvp } = await supabase
+        .from('rsvps')
+        .select('id')
+        .eq('event_id', event.id)
+        .eq('user_id', user.id)
+        .maybeSingle()
+      setHasRsvp(!!rsvp)
+      setChecking(false)
     }
-    if (!status.hasUploadedRecord) {
-        return <Navigate to="/records" replace />;
-    }
-  } else if (rsvpGatedRoutes.some(path => location.pathname.startsWith(path))) {
-    if (!status.hasRSVP) {
-        return <Navigate to="/event" replace />;
-    }
-  }
+    check()
+  }, [loading, user])
 
-  return children;
+  if (loading || checking) return <LoadingScreen />
+  if (!user) return <Navigate to="/auth" state={{ from: location }} replace />
+  if (!profile?.onboarding_completed) return <Navigate to="/onboarding" replace />
+  if (!hasRsvp) return <Navigate to="/event" replace />
+  return <Outlet />
+}
+
+function RequireUploaded() {
+  const { user, profile, loading } = useAuth()
+  const location = useLocation()
+  const [checking, setChecking] = useState(true)
+  const [hasRsvp, setHasRsvp] = useState(false)
+  const [hasUploaded, setHasUploaded] = useState(false)
+
+  useEffect(() => {
+    if (loading || !user) return
+    const check = async () => {
+      const { data: event } = await supabase
+        .from('events')
+        .select('id')
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle()
+      if (!event) { setChecking(false); return }
+      const { data: rsvp } = await supabase
+        .from('rsvps')
+        .select('id')
+        .eq('event_id', event.id)
+        .eq('user_id', user.id)
+        .maybeSingle()
+      setHasRsvp(!!rsvp)
+      if (rsvp) {
+        const { data: record } = await supabase
+          .from('vinyl_records')
+          .select('id')
+          .eq('event_id', event.id)
+          .eq('user_id', user.id)
+          .limit(1)
+          .maybeSingle()
+        setHasUploaded(!!record)
+      }
+      setChecking(false)
+    }
+    check()
+  }, [loading, user])
+
+  if (loading || checking) return <LoadingScreen />
+  if (!user) return <Navigate to="/auth" state={{ from: location }} replace />
+  if (!profile?.onboarding_completed) return <Navigate to="/onboarding" replace />
+  if (!hasRsvp) return <Navigate to="/event" replace />
+  if (!hasUploaded) return <Navigate to="/records" replace />
+  return <Outlet />
 }
 
 export default function App() {
   return (
     <AppShell>
       <Routes>
-        {/* Public routes */}
-        <Route path="/" element={<Home />} />
-        <Route path="/home" element={<Home />} />
+        <Route path="/" element={<RootRedirect />} />
         <Route path="/auth" element={<Auth />} />
-        <Route path="/event" element={<Event />} />
 
-        {/* Redirect old auth routes */}
+        {/* Redirect old routes */}
         <Route path="/login" element={<Navigate to="/auth" replace />} />
         <Route path="/signup" element={<Navigate to="/auth" replace />} />
+        <Route path="/home" element={<Navigate to="/event" replace />} />
 
-        {/* Protected Routes - The single ProtectedRoute component handles all gating */}
-        <Route element={<ProtectedRoute />}>
+        {/* Requires auth but NOT onboarded */}
+        <Route element={<RequireNotOnboarded />}>
           <Route path="/onboarding" element={<NewOnboarding />} />
-          <Route path="/music-preferences" element={<Onboarding />} />
+        </Route>
+
+        {/* Requires auth + onboarded */}
+        <Route element={<RequireOnboarded />}>
+          <Route path="/event" element={<Event />} />
           <Route path="/me" element={<MyProfile />} />
+          <Route path="/people/:id" element={<ProfileDetail />} />
+        </Route>
+
+        {/* Requires RSVP */}
+        <Route element={<RequireRsvp />}>
           <Route path="/records" element={<Records />} />
           <Route path="/records/:id" element={<RecordDetail />} />
-          <Route path="/people" element={<People />} />
-          <Route path="/people/:id" element={<ProfileDetail />} />
-          <Route path="/chat/:id" element={<Chat />} />
+          <Route path="/swipe" element={<Swipe />} />
+          <Route path="/matches" element={<Matches />} />
+          <Route path="/chat/:matchId" element={<Chat />} />
         </Route>
       </Routes>
     </AppShell>
-  );
+  )
 }
