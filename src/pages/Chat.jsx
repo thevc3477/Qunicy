@@ -114,7 +114,7 @@ export default function Chat() {
       <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
         {/* Ice breaker */}
         {iceBreaker && (
-          <div style={{ textAlign: 'center', padding: '12px 16px', backgroundColor: 'rgba(99,102,241,0.08)', borderRadius: 12, fontSize: 13, color: 'var(--primary-color)', marginBottom: 8 }}>
+          <div style={{ textAlign: 'center', padding: '12px 16px', backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 12, fontSize: 13, color: '#FFFFFF', marginBottom: 8 }}>
             {iceBreaker}
           </div>
         )}

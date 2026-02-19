@@ -145,7 +145,7 @@ export default function Event() {
               marginTop: 10,
               backgroundColor: 'transparent',
               border: '1.5px solid var(--primary-color)',
-              color: 'var(--primary-color)',
+              color: '#FFFFFF',
               cursor: 'pointer',
             }}
           >

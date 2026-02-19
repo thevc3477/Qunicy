@@ -14,7 +14,7 @@ export default function Header() {
       <h1 style={{
         fontSize: 20,
         fontWeight: 700,
-        color: 'var(--primary-color)',
+        color: '#F5F5F4',
       }}>
         Quincy
       </h1>

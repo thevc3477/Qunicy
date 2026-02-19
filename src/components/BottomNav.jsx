@@ -42,7 +42,7 @@ export default function BottomNav() {
             gap: 4,
             padding: '8px 0',
             textDecoration: 'none',
-            color: isActive(tab.path) ? 'var(--primary-color)' : 'var(--text-secondary)',
+            color: isActive(tab.path) ? '#FFFFFF' : 'var(--text-secondary)',
             transition: 'color 0.2s',
           }}
         >

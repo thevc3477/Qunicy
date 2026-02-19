@@ -384,7 +384,7 @@ export default function NewOnboarding() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', padding: 20, paddingBottom: 100 }}>
       <div style={{ textAlign: 'center', marginBottom: 24 }}>
-        <h1 style={{ fontSize: 24, color: 'var(--primary-color)', marginBottom: 4 }}>Welcome to Quincy</h1>
+        <h1 style={{ fontSize: 24, color: '#F5F5F4', marginBottom: 4 }}>Welcome to Quincy</h1>
         <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Let's set up your profile</p>
       </div>
 

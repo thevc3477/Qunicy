@@ -103,7 +103,7 @@ export default function Auth() {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: 20 }}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <h1 style={{ fontSize: 28, color: 'var(--primary-color)' }}>Reset Password</h1>
+          <h1 style={{ fontSize: 28, color: '#FFFFFF' }}>Reset Password</h1>
           <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginTop: 8 }}>
             {resetEmailSent ? 'Check your email for a reset link' : "Enter your email and we'll send you a reset link"}
           </p>
@@ -144,7 +144,7 @@ export default function Auth() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: 20 }}>
       <div style={{ textAlign: 'center', marginBottom: 32 }}>
-        <h1 style={{ fontSize: 32, fontWeight: 700, color: 'var(--primary-color)', margin: '0 0 8px 0' }}>Quincy</h1>
+        <h1 style={{ fontSize: 32, fontWeight: 700, color: '#F5F5F4', margin: '0 0 8px 0' }}>Quincy</h1>
         <p style={{ fontSize: 15, color: 'var(--text-secondary)', margin: 0 }}>Discover music lovers at your favorite events</p>
       </div>
 
@@ -175,7 +175,7 @@ export default function Auth() {
         </div>
         {tab === 'signin' && (
           <button type="button" onClick={() => setShowForgotPassword(true)}
-            style={{ background: 'none', border: 'none', color: 'var(--primary-color)', fontSize: 13, fontWeight: 500, cursor: 'pointer', padding: 0, textAlign: 'left', width: 'auto', minHeight: 'auto' }}>
+            style={{ background: 'none', border: 'none', color: '#FFFFFF', fontSize: 13, fontWeight: 500, cursor: 'pointer', padding: 0, textAlign: 'left', width: 'auto', minHeight: 'auto' }}>
             Forgot password?
           </button>
         )}
