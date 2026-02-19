@@ -44,7 +44,6 @@ export function AuthProvider({ children }) {
     init()
     // Safety timeout — never stay stuck on loading
     const timeout = setTimeout(() => setLoading(false), 5000)
-    return () => clearTimeout(timeout)
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, s) => {
       setSession(s)
@@ -58,7 +57,10 @@ export function AuthProvider({ children }) {
       setLoading(false)
     })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      clearTimeout(timeout)
+      subscription.unsubscribe()
+    }
   }, [])
 
   return (
