@@ -63,7 +63,7 @@ export default function Walkthrough() {
           {steps.map((_, i) => (
             <div key={i} style={{
               width: 8, height: 8, borderRadius: '50%',
-              backgroundColor: i === step ? 'var(--primary-color, #6366f1)' : 'var(--border, #e5e7eb)',
+              backgroundColor: i === step ? 'var(--primary-color, #D97706)' : 'var(--border, #E7E0D5)',
               transition: 'background-color 0.2s',
             }} />
           ))}

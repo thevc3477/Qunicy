@@ -3,14 +3,14 @@
   line-height: 1.5;
   font-weight: 400;
 
-  --primary-color: #6366f1;
-  --primary-dark: #4f46e5;
-  --background: #f3f4f6;
-  --surface: #ffffff;
-  --text-primary: #111827;
-  --text-secondary: #6b7280;
-  --border: #e5e7eb;
-  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --primary-color: #D97706;
+  --primary-dark: #B45309;
+  --background: #FEF3C7;
+  --surface: #FFFBEB;
+  --text-primary: #292524;
+  --text-secondary: #78716C;
+  --border: #E7E0D5;
+  --shadow: 0 4px 6px -1px rgba(41, 37, 36, 0.08), 0 2px 4px -1px rgba(41, 37, 36, 0.04);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -104,7 +104,7 @@ button.secondary:hover {
 
 .card:hover {
   border-color: var(--primary-color);
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.1);
 }
 
 /* Swipe card */
@@ -122,7 +122,7 @@ button.secondary:hover {
 .match-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(99, 102, 241, 0.92);
+  background: rgba(217, 119, 6, 0.92);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -163,7 +163,7 @@ button.secondary:hover {
 .vibe-card-tag {
   display: inline-block;
   padding: 4px 10px;
-  background: rgba(99, 102, 241, 0.08);
+  background: rgba(217, 119, 6, 0.08);
   color: var(--primary-color);
   border-radius: 20px;
   font-size: 12px;
