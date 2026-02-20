@@ -8,13 +8,12 @@ export default function Auth() {
   const location = useLocation()
   const { user } = useAuth()
 
-  const [tab, setTab] = useState('signup')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const [step, setStep] = useState('phone') // 'phone' | 'otp'
+  const [phone, setPhone] = useState('')
+  const [otp, setOtp] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [resetEmailSent, setResetEmailSent] = useState(false)
-  const [showForgotPassword, setShowForgotPassword] = useState(false)
+  const [info, setInfo] = useState(null)
 
   // If already logged in, redirect
   if (user) {
@@ -22,6 +21,21 @@ export default function Auth() {
     navigate(from, { replace: true })
     return null
   }
+
+  // Format phone for display
+  const formatPhoneInput = (value) => {
+    const digits = value.replace(/\D/g, '')
+    if (digits.length <= 3) return digits
+    if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`
+  }
+
+  const handlePhoneChange = (e) => {
+    const digits = e.target.value.replace(/\D/g, '').slice(0, 10)
+    setPhone(digits)
+  }
+
+  const getFullPhone = () => `+1${phone}` // US numbers
 
   const handleAuthSuccess = async (session) => {
     const { data: existingProfile } = await supabase
@@ -47,98 +61,72 @@ export default function Auth() {
     }
   }
 
-  const handleEmailAuth = async (e) => {
+  const handleSendOtp = async (e) => {
     e.preventDefault()
     setError(null)
-    setLoading(true)
+    setInfo(null)
 
-    try {
-      let result
-      if (tab === 'signup') {
-        result = await supabase.auth.signUp({ email, password })
-        if (result.error) throw result.error
-        if (result.data?.user && !result.data?.session) {
-          setError('Check your email to confirm your account, then sign in.')
-          setLoading(false)
-          return
-        }
-      } else {
-        result = await supabase.auth.signInWithPassword({ email, password })
-        if (result.error) throw result.error
-      }
-      if (result.data?.session) {
-        await handleAuthSuccess(result.data.session)
-      }
-    } catch (err) {
-      if (err.message?.includes('Invalid login credentials')) {
-        setError('Invalid email or password.')
-      } else if (err.message?.includes('already registered')) {
-        setError('This email is already registered. Please sign in instead.')
-      } else {
-        setError(err.message || 'Authentication failed.')
-      }
-    } finally {
-      setLoading(false)
+    if (phone.length !== 10) {
+      setError('Please enter a valid 10-digit phone number.')
+      return
     }
-  }
 
-  const handleForgotPassword = async (e) => {
-    e.preventDefault()
-    setError(null)
     setLoading(true)
     try {
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/event`,
+      const { error: otpError } = await supabase.auth.signInWithOtp({
+        phone: getFullPhone(),
       })
-      if (resetError) throw resetError
-      setResetEmailSent(true)
+      if (otpError) throw otpError
+      setInfo(`We sent a code to (${phone.slice(0, 3)}) ${phone.slice(3, 6)}-${phone.slice(6)}`)
+      setStep('otp')
     } catch (err) {
-      setError(err.message || 'Failed to send reset email.')
+      setError(err.message || 'Failed to send verification code.')
     } finally {
       setLoading(false)
     }
   }
 
-  if (showForgotPassword) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: 20 }}>
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <h1 style={{ fontSize: 28, color: '#FFFFFF' }}>Reset Password</h1>
-          <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginTop: 8 }}>
-            {resetEmailSent ? 'Check your email for a reset link' : "Enter your email and we'll send you a reset link"}
-          </p>
-        </div>
-        {!resetEmailSent ? (
-          <form onSubmit={handleForgotPassword} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            {error && (
-              <div style={{ padding: '12px 16px', backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 12, color: '#ef4444', fontSize: 14 }}>
-                {error}
-              </div>
-            )}
-            <div>
-              <label htmlFor="reset-email" style={{ display: 'block', fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Email</label>
-              <input id="reset-email" type="email" placeholder="Enter your email" required value={email} onChange={(e) => setEmail(e.target.value)}
-                style={{ width: '100%', padding: '14px 16px', fontSize: 16, borderRadius: 12, border: '1px solid var(--border)', backgroundColor: 'var(--surface)', outline: 'none' }} />
-            </div>
-            <button type="submit" disabled={loading} style={{ opacity: loading ? 0.7 : 1 }}>
-              {loading ? 'Sending...' : 'Send Reset Link'}
-            </button>
-          </form>
-        ) : (
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
-            <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginBottom: 24 }}>
-              If an account exists with <strong>{email}</strong>, you'll receive a reset link.
-            </p>
-          </div>
-        )}
-        <div style={{ marginTop: 24, textAlign: 'center' }}>
-          <button onClick={() => { setShowForgotPassword(false); setResetEmailSent(false); setError(null) }} className="secondary">
-            ← Back to login
-          </button>
-        </div>
-      </div>
-    )
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault()
+    setError(null)
+    setLoading(true)
+
+    try {
+      const { data, error: verifyError } = await supabase.auth.verifyOtp({
+        phone: getFullPhone(),
+        token: otp,
+        type: 'sms',
+      })
+      if (verifyError) throw verifyError
+      if (data?.session) {
+        await handleAuthSuccess(data.session)
+      }
+    } catch (err) {
+      if (err.message?.includes('Invalid') || err.message?.includes('expired')) {
+        setError('Invalid or expired code. Please try again.')
+      } else {
+        setError(err.message || 'Verification failed.')
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleResend = async () => {
+    setError(null)
+    setInfo(null)
+    setLoading(true)
+    try {
+      const { error: otpError } = await supabase.auth.signInWithOtp({
+        phone: getFullPhone(),
+      })
+      if (otpError) throw otpError
+      setInfo('New code sent!')
+    } catch (err) {
+      setError(err.message || 'Failed to resend code.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -148,41 +136,82 @@ export default function Auth() {
         <p style={{ fontSize: 15, color: 'var(--text-secondary)', margin: 0 }}>Discover music lovers at your favorite events</p>
       </div>
 
-      <div style={{ display: 'flex', gap: 12, marginBottom: 32, backgroundColor: 'var(--surface)', padding: 4, borderRadius: 12, border: '1px solid var(--border)' }}>
-        {['signup', 'signin'].map(t => (
-          <button key={t} onClick={() => { setTab(t); setError(null) }}
-            style={{ flex: 1, padding: '12px 16px', fontSize: 14, fontWeight: 600, border: 'none', borderRadius: 10, backgroundColor: tab === t ? 'var(--primary-color)' : 'transparent', color: tab === t ? 'white' : 'var(--text-secondary)', cursor: 'pointer', transition: 'all 0.2s ease' }}>
-            {t === 'signup' ? 'Sign Up' : 'Sign In'}
-          </button>
-        ))}
-      </div>
-
-      <form onSubmit={handleEmailAuth} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {error && (
-          <div style={{ padding: '12px 16px', backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 12, color: '#ef4444', fontSize: 14 }}>
-            {error}
+      {step === 'phone' ? (
+        <form onSubmit={handleSendOtp} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {error && (
+            <div style={{ padding: '12px 16px', backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 12, color: '#ef4444', fontSize: 14 }}>
+              {error}
+            </div>
+          )}
+          <div>
+            <label htmlFor="phone" style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--text-secondary)' }}>Phone Number</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 15, color: 'var(--text-secondary)', padding: '12px 0 12px 14px', backgroundColor: 'var(--surface)', borderRadius: '10px 0 0 10px', border: '1px solid var(--border)', borderRight: 'none', lineHeight: '1.4' }}>+1</span>
+              <input
+                id="phone"
+                type="tel"
+                inputMode="numeric"
+                placeholder="(555) 123-4567"
+                required
+                value={formatPhoneInput(phone)}
+                onChange={handlePhoneChange}
+                style={{
+                  flex: 1, padding: '12px 14px', fontSize: 15, borderRadius: '0 10px 10px 0',
+                  border: '1px solid var(--border)', borderLeft: 'none', backgroundColor: 'var(--surface)',
+                  outline: 'none', boxSizing: 'border-box',
+                }}
+              />
+            </div>
           </div>
-        )}
-        <div>
-          <label htmlFor="email" style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--text-secondary)' }}>Email</label>
-          <input id="email" type="email" placeholder="you@example.com" required value={email} onChange={(e) => setEmail(e.target.value)}
-            style={{ width: '100%', padding: '12px 14px', fontSize: 15, borderRadius: 10, border: '1px solid var(--border)', backgroundColor: 'var(--surface)', outline: 'none', boxSizing: 'border-box' }} />
-        </div>
-        <div>
-          <label htmlFor="password" style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--text-secondary)' }}>Password</label>
-          <input id="password" type="password" placeholder={tab === 'signup' ? 'Min 6 characters' : 'Enter your password'} required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)}
-            style={{ width: '100%', padding: '12px 14px', fontSize: 15, borderRadius: 10, border: '1px solid var(--border)', backgroundColor: 'var(--surface)', outline: 'none', boxSizing: 'border-box' }} />
-        </div>
-        {tab === 'signin' && (
-          <button type="button" onClick={() => setShowForgotPassword(true)}
-            style={{ background: 'none', border: 'none', color: '#FFFFFF', fontSize: 13, fontWeight: 500, cursor: 'pointer', padding: 0, textAlign: 'left', width: 'auto', minHeight: 'auto' }}>
-            Forgot password?
+          <button type="submit" disabled={loading || phone.length !== 10} style={{ opacity: (loading || phone.length !== 10) ? 0.5 : 1, marginTop: 8 }}>
+            {loading ? 'Sending code...' : 'Send Verification Code'}
           </button>
-        )}
-        <button type="submit" disabled={loading} style={{ opacity: loading ? 0.7 : 1, marginTop: 8 }}>
-          {loading ? (tab === 'signup' ? 'Creating account...' : 'Signing in...') : (tab === 'signup' ? 'Create Account' : 'Sign In')}
-        </button>
-      </form>
+        </form>
+      ) : (
+        <form onSubmit={handleVerifyOtp} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {error && (
+            <div style={{ padding: '12px 16px', backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 12, color: '#ef4444', fontSize: 14 }}>
+              {error}
+            </div>
+          )}
+          {info && (
+            <div style={{ padding: '12px 16px', backgroundColor: 'rgba(99, 102, 241, 0.1)', border: '1px solid rgba(99, 102, 241, 0.3)', borderRadius: 12, color: '#93c5fd', fontSize: 14 }}>
+              {info}
+            </div>
+          )}
+          <div>
+            <label htmlFor="otp" style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6, color: 'var(--text-secondary)' }}>Verification Code</label>
+            <input
+              id="otp"
+              type="text"
+              inputMode="numeric"
+              placeholder="Enter 6-digit code"
+              required
+              maxLength={6}
+              value={otp}
+              onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              style={{
+                width: '100%', padding: '14px 16px', fontSize: 20, letterSpacing: '0.3em',
+                textAlign: 'center', borderRadius: 12, border: '1px solid var(--border)',
+                backgroundColor: 'var(--surface)', outline: 'none', boxSizing: 'border-box',
+              }}
+            />
+          </div>
+          <button type="submit" disabled={loading || otp.length !== 6} style={{ opacity: (loading || otp.length !== 6) ? 0.5 : 1, marginTop: 8 }}>
+            {loading ? 'Verifying...' : 'Verify & Continue'}
+          </button>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 4 }}>
+            <button type="button" onClick={handleResend} disabled={loading}
+              style={{ background: 'none', border: 'none', color: '#93c5fd', fontSize: 13, fontWeight: 500, cursor: 'pointer', padding: 0, minHeight: 'auto', width: 'auto' }}>
+              Resend code
+            </button>
+            <button type="button" onClick={() => { setStep('phone'); setOtp(''); setError(null); setInfo(null) }}
+              style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500, cursor: 'pointer', padding: 0, minHeight: 'auto', width: 'auto' }}>
+              Change number
+            </button>
+          </div>
+        </form>
+      )}
     </div>
   )
 }

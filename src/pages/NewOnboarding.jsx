@@ -9,9 +9,9 @@ const QUESTIONS = [
     title: 'What best describes you?',
     type: 'single',
     options: [
-      { value: 'vinyl_head', label: 'Vinyl Head', emoji: '💿', subtitle: "Your shelves are full and you wouldn't have it any other way" },
-      { value: 'vibe_seeker', label: 'Vibe Seeker', emoji: '✨', subtitle: 'Here for the music, the people, and the energy' },
-      { value: 'crate_digger', label: 'Crate Digger', emoji: '🎵', subtitle: "You can name any B-side and you're always hunting for the next gem" },
+      { value: 'casual_listener', label: 'Casual Listener', emoji: '🎵', subtitle: 'I just love music and good vibes' },
+      { value: 'crate_digger', label: 'Crate Digger', emoji: '📦', subtitle: "Always digging for the next gem" },
+      { value: 'serious_collector', label: 'Serious Collector', emoji: '🏆', subtitle: 'My collection is my pride and joy' },
     ],
   },
   {
@@ -78,6 +78,12 @@ export default function NewOnboarding() {
   const handleAvatarChange = (e) => {
     const file = e.target.files?.[0]
     if (!file) return
+    const allowed = ['image/png', 'image/jpeg', 'image/jpg']
+    if (!allowed.includes(file.type)) {
+      setError('Please upload a PNG or JPEG image.')
+      return
+    }
+    setError(null)
     setAvatarFile(file)
     const reader = new FileReader()
     reader.onloadend = () => setAvatarPreview(reader.result)
@@ -149,26 +155,34 @@ export default function NewOnboarding() {
     setError(null)
 
     try {
-      // Upload avatar
+      // Upload avatar (non-blocking — don't fail onboarding if avatar upload fails)
       let avatarUrl = null
       if (avatarFile) {
-        const ext = avatarFile.name.split('.').pop()
-        const path = `profile-photos/${user.id}-${Date.now()}.${ext}`
-        const { error: upErr } = await supabase.storage.from('records').upload(path, avatarFile)
-        if (!upErr) avatarUrl = path
+        try {
+          const ext = avatarFile.name.split('.').pop()
+          const path = `profile-photos/${user.id}-${Date.now()}.${ext}`
+          const { error: upErr } = await supabase.storage.from('records').upload(path, avatarFile)
+          if (!upErr) avatarUrl = path
+          else console.warn('Avatar upload failed:', upErr)
+        } catch (avatarErr) {
+          console.warn('Avatar upload error:', avatarErr)
+        }
       }
 
-      // Upload records
+      // Upload records (non-blocking — don't fail onboarding if uploads fail)
       const uploadedRecords = []
       const timestamp = Date.now()
       for (let i = 0; i < recordFiles.length; i++) {
         const file = recordFiles[i]
         if (!file) continue
-        const ext = file.name.split('.').pop()
-        const path = `vinyl-uploads/${user.id}/${timestamp}-${i}.${ext}`
-        const { error: recErr } = await supabase.storage.from('records').upload(path, file)
-        if (!recErr) {
-          uploadedRecords.push(path)
+        try {
+          const ext = file.name.split('.').pop()
+          const path = `vinyl-uploads/${user.id}/${timestamp}-${i}.${ext}`
+          const { error: recErr } = await supabase.storage.from('records').upload(path, file)
+          if (!recErr) uploadedRecords.push(path)
+          else console.warn(`Record ${i} upload failed:`, recErr)
+        } catch (recUpErr) {
+          console.warn(`Record ${i} upload error:`, recUpErr)
         }
       }
 
@@ -179,10 +193,10 @@ export default function NewOnboarding() {
           image_url: url,
         }))
         const { error: insertErr } = await supabase.from('vinyl_records').insert(rows)
-        if (insertErr) console.error('vinyl_records insert error:', insertErr)
+        if (insertErr) console.warn('vinyl_records insert error:', insertErr)
       }
 
-      // Save profile
+      // Save profile — this is the critical step
       const payload = {
         id: user.id,
         display_name: displayName.trim(),
@@ -197,12 +211,20 @@ export default function NewOnboarding() {
       const { error: updateError } = await supabase.from('profiles').upsert(payload)
       if (updateError) throw updateError
 
-      await refreshProfile()
+      // Refresh profile with timeout so it doesn't hang forever
+      try {
+        await Promise.race([
+          refreshProfile(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+        ])
+      } catch (refreshErr) {
+        console.warn('Profile refresh timeout, continuing anyway')
+      }
+
       navigate('/event', { replace: true })
     } catch (err) {
       console.error('Onboarding error:', err)
-      setError(err.message || 'Failed to save.')
-    } finally {
+      setError(err.message || 'Failed to save. Please try again.')
       setLoading(false)
     }
   }
@@ -229,17 +251,21 @@ export default function NewOnboarding() {
             {avatarPreview ? 'Change photo' : 'Add photo (optional)'}
           </p>
         </label>
-        <input id="avatar-upload" type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: 'none' }} />
+        <input id="avatar-upload" type="file" accept=".png,.jpg,.jpeg" onChange={handleAvatarChange} style={{ display: 'none' }} />
       </div>
       <div>
         <label style={{ display: 'block', fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Display Name *</label>
-        <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)}
+        <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value.slice(0, 30))}
           placeholder="What should people call you?"
+          maxLength={30}
           style={{
             width: '100%', padding: '14px 16px', fontSize: 15, borderRadius: 12,
             border: '1px solid var(--border)', backgroundColor: 'var(--surface)', outline: 'none', boxSizing: 'border-box',
           }}
         />
+        <p style={{ fontSize: 12, color: 'var(--text-secondary)', textAlign: 'right', marginTop: 4 }}>
+          {displayName.length}/30
+        </p>
       </div>
     </div>
   )
@@ -325,7 +351,7 @@ export default function NewOnboarding() {
             <input
               ref={fileInputRefs[index]}
               type="file"
-              accept="image/*"
+              accept=".png,.jpg,.jpeg"
               onChange={(e) => handleRecordFileChange(index, e)}
               style={{ display: 'none' }}
             />
