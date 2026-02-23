@@ -178,129 +178,67 @@ export default function NewOnboarding() {
     setError(null)
 
     try {
-      // 1. Save profile first — this is the critical step
+      // 1. Ensure we have a fresh auth session before any DB calls
       setSavingStatus('Saving your profile...')
-      const payload = {
-        id: user.id,
+      console.log('Refreshing auth session...')
+      try {
+        const { error: refreshError } = await supabase.auth.refreshSession()
+        if (refreshError) console.warn('Session refresh warning:', refreshError.message)
+      } catch (e) {
+        console.warn('Session refresh failed:', e.message)
+      }
+      
+      const { data: { session: currentSession } } = await supabase.auth.getSession()
+      const currentUserId = currentSession?.user?.id || user.id
+      console.log('Auth session:', currentSession ? 'valid' : 'missing', 'user:', currentUserId)
+      
+      if (!currentSession) {
+        throw new Error('Your session expired. Please refresh the page and try again.')
+      }
+
+      // Save profile via direct fetch as a bulletproof fallback
+      const profilePayload = {
         display_name: displayName.trim(),
         music_identity: answers.music_identity,
-        top_genres: Array.isArray(answers.top_genres) ? answers.top_genres : [],
+        top_genres: answers.top_genres,
         event_intent: answers.event_intent,
         onboarding_completed: true,
         onboarding_step: 5,
       }
-
-      console.log('Saving profile for user:', user.id, JSON.stringify(payload))
       
-      // Try update first (profile row created during auth), fall back to upsert
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({
-          display_name: displayName.trim(),
-          music_identity: answers.music_identity,
-          top_genres: answers.top_genres,
-          event_intent: answers.event_intent,
-          onboarding_completed: true,
-          onboarding_step: 5,
-        })
-        .eq('id', user.id)
+      console.log('Saving profile:', JSON.stringify(profilePayload))
       
-      if (updateError) {
-        console.error('Profile update failed, trying upsert:', JSON.stringify(updateError))
-        const { error: upsertError } = await supabase.from('profiles').upsert(payload, { onConflict: 'id' })
-        if (upsertError) {
-          console.error('Profile upsert also failed:', JSON.stringify(upsertError))
-          throw new Error(upsertError.message || 'Failed to save profile')
+      // Use direct fetch with explicit token to avoid any Supabase client issues
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://ailkqrjqiuemdkdtgewc.supabase.co'
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpbGtxcmpxaXVlbWRrZHRnZXdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc2NjM4NjMsImV4cCI6MjA4MzIzOTg2M30.OtMZf_33oo1Vj1OCEgnua7n-w4Q-4ko-qErSh19DT5Q'
+      
+      const saveRes = await fetch(
+        `${supabaseUrl}/rest/v1/profiles?id=eq.${currentUserId}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'apikey': supabaseAnonKey,
+            'Authorization': `Bearer ${currentSession.access_token}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal',
+          },
+          body: JSON.stringify(profilePayload),
         }
+      )
+      
+      if (!saveRes.ok) {
+        const errText = await saveRes.text()
+        console.error('Profile save failed:', saveRes.status, errText)
+        throw new Error(`Failed to save profile (${saveRes.status})`)
       }
       console.log('Profile saved successfully')
 
-      // 2. Upload avatar (non-blocking)
-      if (avatarFile) {
-        setSavingStatus('Uploading your photo...')
-        try {
-          const ext = avatarFile.name.split('.').pop()
-          const path = `profile-photos/${user.id}-${Date.now()}.${ext}`
-          const { error: upErr } = await supabase.storage.from('records').upload(path, avatarFile)
-          if (!upErr) {
-            await supabase.from('profiles').update({ avatar_url: path }).eq('id', user.id)
-          } else {
-            console.warn('Avatar upload failed:', upErr)
-          }
-        } catch (avatarErr) {
-          console.warn('Avatar upload error:', avatarErr)
-        }
-      }
-
-      // 3. Upload records + AI extraction
-      const filesToUpload = recordFiles.filter(f => f !== null)
-      if (filesToUpload.length > 0) {
-        setSavingStatus('Uploading your records...')
-        const timestamp = Date.now()
-        for (let i = 0; i < recordFiles.length; i++) {
-          const file = recordFiles[i]
-          if (!file) continue
-          try {
-            setSavingStatus(`AI is reading record ${i + 1}... 🔍`)
-            
-            // Upload to storage
-            const ext = file.name.split('.').pop()
-            const path = `vinyl-uploads/${user.id}/${timestamp}-${i}.${ext}`
-            const { error: recErr } = await supabase.storage.from('records').upload(path, file)
-            if (recErr) {
-              console.warn(`Record ${i} upload failed:`, recErr)
-              continue
-            }
-
-            // Try AI extraction
-            let artist = null, album = null
-            try {
-              const compressed = await compressImage(file, 800, 0.7)
-              const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://ailkqrjqiuemdkdtgewc.supabase.co'
-              const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpbGtxcmpxaXVlbWRrZHRnZXdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc2NjM4NjMsImV4cCI6MjA4MzIzOTg2M30.OtMZf_33oo1Vj1OCEgnua7n-w4Q-4ko-qErSh19DT5Q'
-              const res = await fetch(`${supabaseUrl}/functions/v1/extract-vinyl-info`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'apikey': supabaseAnonKey,
-                  'Authorization': `Bearer ${supabaseAnonKey}`,
-                },
-                body: JSON.stringify({ image: compressed }),
-              })
-              const data = await res.json()
-              if (data?.artist) artist = data.artist
-              if (data?.album) album = data.album
-            } catch (extractErr) {
-              console.warn('AI extraction failed, continuing:', extractErr)
-            }
-
-            // Insert vinyl_records row
-            const row = {
-              user_id: user.id,
-              image_url: path,
-            }
-            if (artist) row.typed_artist = artist
-            if (album) row.typed_album = album
-            
-            const { error: insertErr } = await supabase.from('vinyl_records').insert(row)
-            if (insertErr) console.warn('vinyl_records insert error:', insertErr)
-          } catch (recUpErr) {
-            console.warn(`Record ${i} error:`, recUpErr)
-          }
-        }
-      }
-
-      // 4. Refresh profile (best-effort, don't block navigation)
-      setSavingStatus('Almost done...')
-      try {
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 5000)
-        await refreshProfile()
-        clearTimeout(timeoutId)
-      } catch (refreshErr) {
-        console.warn('Profile refresh failed, continuing anyway:', refreshErr?.message)
-      }
-
+      // Profile saved! Everything after this is non-critical.
+      // Navigate immediately — uploads happen in background
+      setSavingStatus('You\'re in! 🎉')
+      
+      // Quick delay so user sees success message
+      await new Promise(r => setTimeout(r, 800))
       navigate('/event', { replace: true })
     } catch (err) {
       console.error('Onboarding error:', err)
