@@ -207,17 +207,19 @@ export default function NewOnboarding() {
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 10000)
       
+      // Use POST with upsert header (creates row if missing, updates if exists)
       const saveRes = await fetch(
-        `${SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}`,
+        `${SUPABASE_URL}/rest/v1/profiles`,
         {
-          method: 'PATCH',
+          method: 'POST',
           headers: {
             'apikey': ANON_KEY,
             'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
-            'Prefer': 'return=minimal',
+            'Prefer': 'resolution=merge-duplicates,return=representation',
           },
           body: JSON.stringify({
+            id: user.id,
             display_name: displayName.trim(),
             music_identity: answers.music_identity,
             top_genres: answers.top_genres,
@@ -230,12 +232,19 @@ export default function NewOnboarding() {
       )
       clearTimeout(timeout)
       
-      console.log('Profile save response:', saveRes.status)
+      const responseText = await saveRes.text()
+      console.log('Profile save response:', saveRes.status, responseText)
       
       if (!saveRes.ok) {
-        const errText = await saveRes.text()
-        console.error('Profile save failed:', saveRes.status, errText)
+        console.error('Profile save failed:', saveRes.status, responseText)
         throw new Error(`Save failed (${saveRes.status}). Please try again.`)
+      }
+      
+      // Verify it actually saved
+      const saved = JSON.parse(responseText)
+      if (!saved?.[0]?.onboarding_completed) {
+        console.error('Profile saved but onboarding_completed is not true:', saved)
+        throw new Error('Save did not complete properly. Please try again.')
       }
 
       // Done! Navigate to event page

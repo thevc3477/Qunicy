@@ -38,26 +38,51 @@ export default function Auth() {
   const getFullPhone = () => `+1${phone}` // US numbers
 
   const handleAuthSuccess = async (session) => {
-    const { data: existingProfile } = await supabase
-      .from('profiles')
-      .select('id, onboarding_completed')
-      .eq('id', session.user.id)
-      .maybeSingle()
+    const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://ailkqrjqiuemdkdtgewc.supabase.co'
+    const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpbGtxcmpxaXVlbWRrZHRnZXdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc2NjM4NjMsImV4cCI6MjA4MzIzOTg2M30.OtMZf_33oo1Vj1OCEgnua7n-w4Q-4ko-qErSh19DT5Q'
+    const token = session.access_token
 
-    if (!existingProfile) {
-      await supabase.from('profiles').insert({
-        id: session.user.id,
-        onboarding_completed: false,
-        onboarding_step: 0,
-      })
-    }
+    try {
+      // Check if profile exists
+      const checkRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/profiles?id=eq.${session.user.id}&select=id,onboarding_completed`,
+        {
+          headers: {
+            'apikey': ANON_KEY,
+            'Authorization': `Bearer ${token}`,
+          },
+        }
+      )
+      const profiles = await checkRes.json()
+      const existingProfile = profiles?.[0]
 
-    const isFirstTime = !existingProfile?.onboarding_completed
-    if (isFirstTime) {
-      navigate('/onboarding', { replace: true })
-    } else {
-      const from = location.state?.from?.pathname
-      navigate(from || '/event', { replace: true })
+      // Create profile if it doesn't exist
+      if (!existingProfile) {
+        await fetch(`${SUPABASE_URL}/rest/v1/profiles`, {
+          method: 'POST',
+          headers: {
+            'apikey': ANON_KEY,
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal',
+          },
+          body: JSON.stringify({
+            id: session.user.id,
+            onboarding_completed: false,
+            onboarding_step: 0,
+          }),
+        })
+      }
+
+      const isFirstTime = !existingProfile?.onboarding_completed
+      if (isFirstTime) {
+        window.location.href = '/onboarding'
+      } else {
+        window.location.href = location.state?.from?.pathname || '/event'
+      }
+    } catch (err) {
+      console.error('Auth success handler error:', err)
+      window.location.href = '/onboarding'
     }
   }
 
