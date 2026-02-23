@@ -66,6 +66,7 @@ export default function NewOnboarding() {
   const [recordPreviews, setRecordPreviews] = useState([null, null, null])
   const fileInputRefs = [useRef(null), useRef(null), useRef(null)]
   const [loading, setLoading] = useState(false)
+  const [savingStatus, setSavingStatus] = useState('')
   const [error, setError] = useState(null)
 
   useEffect(() => {
@@ -149,54 +150,36 @@ export default function NewOnboarding() {
     if (currentStep > 0) setCurrentStep(prev => prev - 1)
   }
 
+  const compressImage = (file, maxWidth = 800, quality = 0.7) => {
+    return new Promise((resolve) => {
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')
+      const img = new Image()
+      img.onload = () => {
+        let width = img.width
+        let height = img.height
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width
+          width = maxWidth
+        }
+        canvas.width = width
+        canvas.height = height
+        ctx.drawImage(img, 0, 0, width, height)
+        resolve(canvas.toDataURL('image/jpeg', quality))
+      }
+      img.src = URL.createObjectURL(file)
+    })
+  }
+
   const handleSubmit = async () => {
     if (!user) return
     setLoading(true)
+    setSavingStatus('Saving your profile...')
     setError(null)
 
     try {
-      // Upload avatar (non-blocking — don't fail onboarding if avatar upload fails)
-      let avatarUrl = null
-      if (avatarFile) {
-        try {
-          const ext = avatarFile.name.split('.').pop()
-          const path = `profile-photos/${user.id}-${Date.now()}.${ext}`
-          const { error: upErr } = await supabase.storage.from('records').upload(path, avatarFile)
-          if (!upErr) avatarUrl = path
-          else console.warn('Avatar upload failed:', upErr)
-        } catch (avatarErr) {
-          console.warn('Avatar upload error:', avatarErr)
-        }
-      }
-
-      // Upload records (non-blocking — don't fail onboarding if uploads fail)
-      const uploadedRecords = []
-      const timestamp = Date.now()
-      for (let i = 0; i < recordFiles.length; i++) {
-        const file = recordFiles[i]
-        if (!file) continue
-        try {
-          const ext = file.name.split('.').pop()
-          const path = `vinyl-uploads/${user.id}/${timestamp}-${i}.${ext}`
-          const { error: recErr } = await supabase.storage.from('records').upload(path, file)
-          if (!recErr) uploadedRecords.push(path)
-          else console.warn(`Record ${i} upload failed:`, recErr)
-        } catch (recUpErr) {
-          console.warn(`Record ${i} upload error:`, recUpErr)
-        }
-      }
-
-      // Insert vinyl_records rows
-      if (uploadedRecords.length > 0) {
-        const rows = uploadedRecords.map(url => ({
-          user_id: user.id,
-          image_url: url,
-        }))
-        const { error: insertErr } = await supabase.from('vinyl_records').insert(rows)
-        if (insertErr) console.warn('vinyl_records insert error:', insertErr)
-      }
-
-      // Save profile — this is the critical step
+      // 1. Save profile first — this is the critical step
+      setSavingStatus('Saving your profile...')
       const payload = {
         id: user.id,
         display_name: displayName.trim(),
@@ -206,12 +189,87 @@ export default function NewOnboarding() {
         onboarding_completed: true,
         onboarding_step: 5,
       }
-      if (avatarUrl) payload.avatar_url = avatarUrl
 
       const { error: updateError } = await supabase.from('profiles').upsert(payload)
       if (updateError) throw updateError
 
-      // Refresh profile with timeout so it doesn't hang forever
+      // 2. Upload avatar (non-blocking)
+      if (avatarFile) {
+        setSavingStatus('Uploading your photo...')
+        try {
+          const ext = avatarFile.name.split('.').pop()
+          const path = `profile-photos/${user.id}-${Date.now()}.${ext}`
+          const { error: upErr } = await supabase.storage.from('records').upload(path, avatarFile)
+          if (!upErr) {
+            await supabase.from('profiles').update({ avatar_url: path }).eq('id', user.id)
+          } else {
+            console.warn('Avatar upload failed:', upErr)
+          }
+        } catch (avatarErr) {
+          console.warn('Avatar upload error:', avatarErr)
+        }
+      }
+
+      // 3. Upload records + AI extraction
+      const filesToUpload = recordFiles.filter(f => f !== null)
+      if (filesToUpload.length > 0) {
+        setSavingStatus('Uploading your records...')
+        const timestamp = Date.now()
+        for (let i = 0; i < recordFiles.length; i++) {
+          const file = recordFiles[i]
+          if (!file) continue
+          try {
+            setSavingStatus(`AI is reading record ${i + 1}... 🔍`)
+            
+            // Upload to storage
+            const ext = file.name.split('.').pop()
+            const path = `vinyl-uploads/${user.id}/${timestamp}-${i}.${ext}`
+            const { error: recErr } = await supabase.storage.from('records').upload(path, file)
+            if (recErr) {
+              console.warn(`Record ${i} upload failed:`, recErr)
+              continue
+            }
+
+            // Try AI extraction
+            let artist = null, album = null
+            try {
+              const compressed = await compressImage(file, 800, 0.7)
+              const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://ailkqrjqiuemdkdtgewc.supabase.co'
+              const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpbGtxcmpxaXVlbWRrZHRnZXdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc2NjM4NjMsImV4cCI6MjA4MzIzOTg2M30.OtMZf_33oo1Vj1OCEgnua7n-w4Q-4ko-qErSh19DT5Q'
+              const res = await fetch(`${supabaseUrl}/functions/v1/extract-vinyl-info`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'apikey': supabaseAnonKey,
+                  'Authorization': `Bearer ${supabaseAnonKey}`,
+                },
+                body: JSON.stringify({ image: compressed }),
+              })
+              const data = await res.json()
+              if (data?.artist) artist = data.artist
+              if (data?.album) album = data.album
+            } catch (extractErr) {
+              console.warn('AI extraction failed, continuing:', extractErr)
+            }
+
+            // Insert vinyl_records row
+            const row = {
+              user_id: user.id,
+              image_url: path,
+            }
+            if (artist) row.typed_artist = artist
+            if (album) row.typed_album = album
+            
+            const { error: insertErr } = await supabase.from('vinyl_records').insert(row)
+            if (insertErr) console.warn('vinyl_records insert error:', insertErr)
+          } catch (recUpErr) {
+            console.warn(`Record ${i} error:`, recUpErr)
+          }
+        }
+      }
+
+      // 4. Refresh profile
+      setSavingStatus('Almost done...')
       try {
         await Promise.race([
           refreshProfile(),
@@ -225,7 +283,9 @@ export default function NewOnboarding() {
     } catch (err) {
       console.error('Onboarding error:', err)
       setError(err.message || 'Failed to save. Please try again.')
+    } finally {
       setLoading(false)
+      setSavingStatus('')
     }
   }
 
@@ -397,6 +457,31 @@ export default function NewOnboarding() {
         }}>
         Skip for now
       </button>
+
+      {loading && savingStatus && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          flexDirection: 'column', gap: 16,
+        }}>
+          <div style={{ fontSize: 48, animation: 'pulse 1.5s ease-in-out infinite' }}>
+            {savingStatus.includes('reading') ? '🔍' : savingStatus.includes('record') ? '💿' : '✨'}
+          </div>
+          <p style={{ fontSize: 18, fontWeight: 600, color: 'white', textAlign: 'center' }}>
+            {savingStatus}
+          </p>
+          <div style={{
+            width: 40, height: 40, border: '3px solid rgba(255,255,255,0.2)',
+            borderTopColor: 'white', borderRadius: '50%',
+            animation: 'spin 0.8s linear infinite',
+          }} />
+          <style>{`
+            @keyframes spin { to { transform: rotate(360deg); } }
+            @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.2); } }
+          `}</style>
+        </div>
+      )}
     </div>
   )
 
@@ -444,7 +529,7 @@ export default function NewOnboarding() {
         )}
         <button type="button" onClick={handleNext} disabled={!hasValidAnswer() || loading}
           style={{ flex: currentStep > 0 ? 1 : '1 1 100%', opacity: (!hasValidAnswer() || loading) ? 0.5 : 1 }}>
-          {loading ? 'Saving...' : currentStep < totalSteps - 1 ? 'Next' : 'Finish'}
+          {loading ? (savingStatus || 'Saving...') : currentStep < totalSteps - 1 ? 'Next' : 'Finish'}
         </button>
       </div>
     </div>
