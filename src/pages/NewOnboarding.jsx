@@ -178,77 +178,79 @@ export default function NewOnboarding() {
     setError(null)
 
     try {
-      // 1. Ensure we have a fresh auth session before any DB calls
-      setSavingStatus('Saving your profile...')
-      console.log('Refreshing auth session...')
-      try {
-        const { error: refreshError } = await supabase.auth.refreshSession()
-        if (refreshError) console.warn('Session refresh warning:', refreshError.message)
-      } catch (e) {
-        console.warn('Session refresh failed:', e.message)
+      // Get auth token directly from localStorage — bypass Supabase client completely
+      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://ailkqrjqiuemdkdtgewc.supabase.co'
+      const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpbGtxcmpxaXVlbWRrZHRnZXdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc2NjM4NjMsImV4cCI6MjA4MzIzOTg2M30.OtMZf_33oo1Vj1OCEgnua7n-w4Q-4ko-qErSh19DT5Q'
+      
+      // Extract the project ref from the URL for the localStorage key
+      const projectRef = SUPABASE_URL.match(/\/\/([^.]+)/)?.[1] || 'ailkqrjqiuemdkdtgewc'
+      const storageKey = `sb-${projectRef}-auth-token`
+      const stored = localStorage.getItem(storageKey)
+      
+      let accessToken = null
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored)
+          accessToken = parsed.access_token
+        } catch (e) {
+          console.warn('Failed to parse stored token')
+        }
       }
       
-      const { data: { session: currentSession } } = await supabase.auth.getSession()
-      const currentUserId = currentSession?.user?.id || user.id
-      console.log('Auth session:', currentSession ? 'valid' : 'missing', 'user:', currentUserId)
-      
-      if (!currentSession) {
-        throw new Error('Your session expired. Please refresh the page and try again.')
+      if (!accessToken) {
+        throw new Error('Not logged in. Please refresh the page and sign in again.')
       }
+      
+      console.log('Got token from localStorage, saving profile for:', user.id)
 
-      // Save profile via direct fetch as a bulletproof fallback
-      const profilePayload = {
-        display_name: displayName.trim(),
-        music_identity: answers.music_identity,
-        top_genres: answers.top_genres,
-        event_intent: answers.event_intent,
-        onboarding_completed: true,
-        onboarding_step: 5,
-      }
-      
-      console.log('Saving profile:', JSON.stringify(profilePayload))
-      
-      // Use direct fetch with explicit token to avoid any Supabase client issues
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://ailkqrjqiuemdkdtgewc.supabase.co'
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpbGtxcmpxaXVlbWRrZHRnZXdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc2NjM4NjMsImV4cCI6MjA4MzIzOTg2M30.OtMZf_33oo1Vj1OCEgnua7n-w4Q-4ko-qErSh19DT5Q'
+      // Save profile with plain fetch — no Supabase client involved
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10000)
       
       const saveRes = await fetch(
-        `${supabaseUrl}/rest/v1/profiles?id=eq.${currentUserId}`,
+        `${SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}`,
         {
           method: 'PATCH',
           headers: {
-            'apikey': supabaseAnonKey,
-            'Authorization': `Bearer ${currentSession.access_token}`,
+            'apikey': ANON_KEY,
+            'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
             'Prefer': 'return=minimal',
           },
-          body: JSON.stringify(profilePayload),
+          body: JSON.stringify({
+            display_name: displayName.trim(),
+            music_identity: answers.music_identity,
+            top_genres: answers.top_genres,
+            event_intent: answers.event_intent,
+            onboarding_completed: true,
+            onboarding_step: 5,
+          }),
+          signal: controller.signal,
         }
       )
+      clearTimeout(timeout)
+      
+      console.log('Profile save response:', saveRes.status)
       
       if (!saveRes.ok) {
         const errText = await saveRes.text()
         console.error('Profile save failed:', saveRes.status, errText)
-        throw new Error(`Failed to save profile (${saveRes.status})`)
+        throw new Error(`Save failed (${saveRes.status}). Please try again.`)
       }
-      console.log('Profile saved successfully')
 
-      // Profile saved! Everything after this is non-critical.
-      // Navigate immediately — uploads happen in background
+      // Done! Navigate to event page
       setSavingStatus('You\'re in! 🎉')
+      await new Promise(r => setTimeout(r, 600))
       
-      // Quick delay so user sees success message
-      await new Promise(r => setTimeout(r, 800))
-      navigate('/event', { replace: true })
+      // Force reload to pick up new profile state
+      window.location.href = '/event'
     } catch (err) {
       console.error('Onboarding error:', err)
-      // Ignore AbortError from timeout races — profile was already saved
-      if (err.name === 'AbortError' || err.message === 'timeout' || err.message?.includes('aborted')) {
-        console.warn('Non-critical error, continuing:', err.message)
-        navigate('/event', { replace: true })
-        return
+      if (err.name === 'AbortError') {
+        setError('Save timed out. Please check your connection and try again.')
+      } else {
+        setError(err.message || 'Failed to save. Please try again.')
       }
-      setError(err.message || 'Failed to save. Please try again.')
     } finally {
       setLoading(false)
       setSavingStatus('')
