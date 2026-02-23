@@ -190,28 +190,28 @@ export default function NewOnboarding() {
         onboarding_step: 5,
       }
 
-      console.log('Upserting profile:', JSON.stringify(payload))
+      console.log('Saving profile for user:', user.id, JSON.stringify(payload))
       
-      // Race the upsert against a timeout
-      let upsertResult
-      const timeoutId = setTimeout(() => {
-        console.error('Profile upsert timed out after 15s')
-      }, 15000)
+      // Try update first (profile row created during auth), fall back to upsert
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          display_name: displayName.trim(),
+          music_identity: answers.music_identity,
+          top_genres: answers.top_genres,
+          event_intent: answers.event_intent,
+          onboarding_completed: true,
+          onboarding_step: 5,
+        })
+        .eq('id', user.id)
       
-      try {
-        upsertResult = await Promise.race([
-          supabase.from('profiles').upsert(payload),
-          new Promise((resolve) => 
-            setTimeout(() => resolve({ error: { message: 'Profile save timed out — please try again.' } }), 15000)
-          )
-        ])
-      } finally {
-        clearTimeout(timeoutId)
-      }
-      
-      if (upsertResult.error) {
-        console.error('Profile upsert error:', JSON.stringify(upsertResult.error))
-        throw new Error(upsertResult.error.message || 'Failed to save profile')
+      if (updateError) {
+        console.error('Profile update failed, trying upsert:', JSON.stringify(updateError))
+        const { error: upsertError } = await supabase.from('profiles').upsert(payload, { onConflict: 'id' })
+        if (upsertError) {
+          console.error('Profile upsert also failed:', JSON.stringify(upsertError))
+          throw new Error(upsertError.message || 'Failed to save profile')
+        }
       }
       console.log('Profile saved successfully')
 
