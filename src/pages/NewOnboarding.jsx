@@ -268,20 +268,26 @@ export default function NewOnboarding() {
         }
       }
 
-      // 4. Refresh profile
+      // 4. Refresh profile (best-effort, don't block navigation)
       setSavingStatus('Almost done...')
       try {
-        await Promise.race([
-          refreshProfile(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
-        ])
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 5000)
+        await refreshProfile()
+        clearTimeout(timeoutId)
       } catch (refreshErr) {
-        console.warn('Profile refresh timeout, continuing anyway')
+        console.warn('Profile refresh failed, continuing anyway:', refreshErr?.message)
       }
 
       navigate('/event', { replace: true })
     } catch (err) {
       console.error('Onboarding error:', err)
+      // Ignore AbortError from timeout races — profile was already saved
+      if (err.name === 'AbortError' || err.message === 'timeout' || err.message?.includes('aborted')) {
+        console.warn('Non-critical error, continuing:', err.message)
+        navigate('/event', { replace: true })
+        return
+      }
       setError(err.message || 'Failed to save. Please try again.')
     } finally {
       setLoading(false)
