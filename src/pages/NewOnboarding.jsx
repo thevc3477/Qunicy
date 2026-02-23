@@ -184,14 +184,36 @@ export default function NewOnboarding() {
         id: user.id,
         display_name: displayName.trim(),
         music_identity: answers.music_identity,
-        top_genres: answers.top_genres,
+        top_genres: Array.isArray(answers.top_genres) ? answers.top_genres : [],
         event_intent: answers.event_intent,
         onboarding_completed: true,
         onboarding_step: 5,
       }
 
-      const { error: updateError } = await supabase.from('profiles').upsert(payload)
-      if (updateError) throw updateError
+      console.log('Upserting profile:', JSON.stringify(payload))
+      
+      // Race the upsert against a timeout
+      let upsertResult
+      const timeoutId = setTimeout(() => {
+        console.error('Profile upsert timed out after 15s')
+      }, 15000)
+      
+      try {
+        upsertResult = await Promise.race([
+          supabase.from('profiles').upsert(payload),
+          new Promise((resolve) => 
+            setTimeout(() => resolve({ error: { message: 'Profile save timed out — please try again.' } }), 15000)
+          )
+        ])
+      } finally {
+        clearTimeout(timeoutId)
+      }
+      
+      if (upsertResult.error) {
+        console.error('Profile upsert error:', JSON.stringify(upsertResult.error))
+        throw new Error(upsertResult.error.message || 'Failed to save profile')
+      }
+      console.log('Profile saved successfully')
 
       // 2. Upload avatar (non-blocking)
       if (avatarFile) {
