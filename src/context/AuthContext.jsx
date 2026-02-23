@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext(null)
@@ -8,44 +8,36 @@ export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+  const initializedRef = useRef(false)
 
-  const fetchProfile = async (userId) => {
+  const fetchProfile = useCallback(async (userId) => {
     if (!userId) return null
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle()
-    return data
-  }
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle()
+      return data
+    } catch (err) {
+      console.warn('fetchProfile error:', err?.message)
+      return null
+    }
+  }, [])
 
-  const refreshProfile = async () => {
-    if (!user?.id) return
-    const p = await fetchProfile(user.id)
-    setProfile(p)
-  }
+  const refreshProfile = useCallback(async () => {
+    const { data: { session: s } } = await supabase.auth.getSession()
+    if (s?.user) {
+      const p = await fetchProfile(s.user.id)
+      setProfile(p)
+    }
+  }, [fetchProfile])
 
   useEffect(() => {
-    const init = async () => {
-      try {
-        const { data: { session: s } } = await supabase.auth.getSession()
-        setSession(s)
-        setUser(s?.user ?? null)
-        if (s?.user) {
-          const p = await fetchProfile(s.user.id)
-          setProfile(p)
-        }
-      } catch (err) {
-        console.error('Auth init error:', err)
-      } finally {
-        setLoading(false)
-      }
-    }
-    init()
-    // Safety timeout — never stay stuck on loading
-    const timeout = setTimeout(() => setLoading(false), 5000)
-
+    // Use onAuthStateChange as the PRIMARY auth source (not getSession)
+    // This avoids the AbortError from React StrictMode double-mount
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, s) => {
+      console.log('Auth state change:', _event, s?.user?.id || 'no user')
       setSession(s)
       setUser(s?.user ?? null)
       if (s?.user) {
@@ -54,14 +46,44 @@ export function AuthProvider({ children }) {
       } else {
         setProfile(null)
       }
+      initializedRef.current = true
       setLoading(false)
     })
 
+    // Fallback: if onAuthStateChange doesn't fire within 3s, try getSession
+    const fallbackTimeout = setTimeout(async () => {
+      if (!initializedRef.current) {
+        console.log('Auth fallback: trying getSession')
+        try {
+          const { data: { session: s } } = await supabase.auth.getSession()
+          setSession(s)
+          setUser(s?.user ?? null)
+          if (s?.user) {
+            const p = await fetchProfile(s.user.id)
+            setProfile(p)
+          }
+        } catch (err) {
+          console.warn('Auth fallback failed:', err?.message)
+        }
+        initializedRef.current = true
+        setLoading(false)
+      }
+    }, 3000)
+
+    // Hard safety timeout — never stay stuck on loading
+    const safetyTimeout = setTimeout(() => {
+      if (loading) {
+        console.warn('Auth safety timeout — forcing loading=false')
+        setLoading(false)
+      }
+    }, 6000)
+
     return () => {
-      clearTimeout(timeout)
+      clearTimeout(fallbackTimeout)
+      clearTimeout(safetyTimeout)
       subscription.unsubscribe()
     }
-  }, [])
+  }, [fetchProfile])
 
   return (
     <AuthContext.Provider value={{ user, session, profile, loading, refreshProfile }}>
