@@ -10,7 +10,6 @@ export default function BottomNav() {
   const tabs = [
     { key: 'event', path: '/event', label: 'Event', icon: '📅' },
     { key: 'records', path: '/records', label: 'Vinyl Wall', icon: '💿' },
-    { key: 'swipe', path: '/swipe', label: 'Discover', icon: '🔥' },
     { key: 'matches', path: '/matches', label: 'Connections', icon: '💬' },
     { key: 'me', path: '/me', label: 'Me', icon: '👤' },
   ]

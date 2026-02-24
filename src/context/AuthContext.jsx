@@ -63,8 +63,32 @@ export function AuthProvider({ children }) {
   }, [fetchProfile])
 
   useEffect(() => {
-    // Use onAuthStateChange as the PRIMARY auth source (not getSession)
-    // This avoids the AbortError from React StrictMode double-mount
+    // INSTANT: Check localStorage immediately for returning users
+    const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://ailkqrjqiuemdkdtgewc.supabase.co'
+    const projectRef = SUPABASE_URL.match(/\/\/([^.]+)/)?.[1] || 'ailkqrjqiuemdkdtgewc'
+    const stored = localStorage.getItem(`sb-${projectRef}-auth-token`)
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored)
+        if (parsed.access_token) {
+          const payload = JSON.parse(atob(parsed.access_token.split('.')[1]))
+          // Check token not expired
+          if (payload.exp * 1000 > Date.now()) {
+            const instantSession = { access_token: parsed.access_token, user: { id: payload.sub, email: payload.email, phone: payload.phone } }
+            setSession(instantSession)
+            setUser(instantSession.user)
+            initializedRef.current = true
+            setLoading(false)
+            // Fetch profile in background
+            fetchProfile(payload.sub, parsed.access_token).then(p => setProfile(p))
+          }
+        }
+      } catch (e) {
+        console.warn('Instant auth parse failed:', e?.message)
+      }
+    }
+
+    // onAuthStateChange handles updates (token refresh, sign out, etc.)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, s) => {
       console.log('Auth state change:', _event, s?.user?.id || 'no user')
       setSession(s)
@@ -79,61 +103,17 @@ export function AuthProvider({ children }) {
       setLoading(false)
     })
 
-    // Fallback: if onAuthStateChange doesn't fire within 3s, try getSession
-    const fallbackTimeout = setTimeout(async () => {
+    // Fallback: if nothing resolved within 3s
+    const fallbackTimeout = setTimeout(() => {
       if (!initializedRef.current) {
-        console.log('Auth fallback: trying getSession')
-        try {
-          // Try getSession, but if it fails, try localStorage directly
-          let s = null
-          try {
-            const result = await supabase.auth.getSession()
-            s = result.data?.session
-          } catch (e) {
-            console.warn('getSession failed, trying localStorage:', e?.message)
-          }
-          
-          // Fallback: parse session from localStorage
-          if (!s) {
-            const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://ailkqrjqiuemdkdtgewc.supabase.co'
-            const projectRef = SUPABASE_URL.match(/\/\/([^.]+)/)?.[1] || 'ailkqrjqiuemdkdtgewc'
-            const stored = localStorage.getItem(`sb-${projectRef}-auth-token`)
-            if (stored) {
-              try {
-                const parsed = JSON.parse(stored)
-                if (parsed.access_token) {
-                  const payload = JSON.parse(atob(parsed.access_token.split('.')[1]))
-                  s = { access_token: parsed.access_token, user: { id: payload.sub } }
-                }
-              } catch (e) {}
-            }
-          }
-          
-          setSession(s)
-          setUser(s?.user ?? null)
-          if (s?.user) {
-            const p = await fetchProfile(s.user.id, s.access_token)
-            setProfile(p)
-          }
-        } catch (err) {
-          console.warn('Auth fallback failed:', err?.message)
-        }
+        console.warn('Auth fallback timeout — no session found')
         initializedRef.current = true
         setLoading(false)
       }
     }, 3000)
 
-    // Hard safety timeout — never stay stuck on loading
-    const safetyTimeout = setTimeout(() => {
-      if (loading) {
-        console.warn('Auth safety timeout — forcing loading=false')
-        setLoading(false)
-      }
-    }, 6000)
-
     return () => {
       clearTimeout(fallbackTimeout)
-      clearTimeout(safetyTimeout)
       subscription.unsubscribe()
     }
   }, [fetchProfile])

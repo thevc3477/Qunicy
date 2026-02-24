@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -46,8 +46,8 @@ const QUESTIONS = [
   },
 ]
 
-// Step 0 = profile, 1-3 = questions, 4 = record upload
-const TOTAL_STEPS = 5
+// Step 0 = profile, 1-3 = questions
+const TOTAL_STEPS = 4
 
 export default function NewOnboarding() {
   const navigate = useNavigate()
@@ -62,9 +62,6 @@ export default function NewOnboarding() {
     top_genres: [],
     event_intent: null,
   })
-  const [recordFiles, setRecordFiles] = useState([null, null, null])
-  const [recordPreviews, setRecordPreviews] = useState([null, null, null])
-  const fileInputRefs = [useRef(null), useRef(null), useRef(null)]
   const [loading, setLoading] = useState(false)
   const [savingStatus, setSavingStatus] = useState('')
   const [error, setError] = useState(null)
@@ -91,31 +88,8 @@ export default function NewOnboarding() {
     reader.readAsDataURL(file)
   }
 
-  const handleRecordFileChange = (index, e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const newFiles = [...recordFiles]
-    newFiles[index] = file
-    setRecordFiles(newFiles)
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      setRecordPreviews(prev => {
-        const updated = [...prev]
-        updated[index] = reader.result
-        return updated
-      })
-    }
-    reader.readAsDataURL(file)
-  }
-
-  const removeRecord = (index) => {
-    setRecordFiles(prev => { const u = [...prev]; u[index] = null; return u })
-    setRecordPreviews(prev => { const u = [...prev]; u[index] = null; return u })
-  }
-
   const hasValidAnswer = () => {
     if (currentStep === 0) return displayName.trim().length > 0
-    if (currentStep === 4) return true // record upload is always valid (skippable)
     const q = QUESTIONS[currentStep - 1]
     if (q.type === 'single') return answers[q.id] !== null
     if (q.type === 'multi') return answers[q.id].length > 0
@@ -247,8 +221,7 @@ export default function NewOnboarding() {
         throw new Error('Save did not complete properly. Please try again.')
       }
 
-      // Upload vinyl records (non-blocking)
-      const actualRecordFiles = recordFiles.filter(Boolean)
+      // Auto-RSVP (non-blocking)
       let activeEventId = null
       try {
         const evRes = await fetch(
@@ -259,75 +232,6 @@ export default function NewOnboarding() {
         if (evData?.[0]?.id) activeEventId = evData[0].id
       } catch (e) { console.warn('Failed to get active event:', e) }
 
-      if (actualRecordFiles.length > 0 && activeEventId) {
-        setSavingStatus('Uploading your records...')
-        try {
-          const ts = Date.now()
-          for (let i = 0; i < actualRecordFiles.length; i++) {
-            const file = actualRecordFiles[i]
-            const ext = file.name.split('.').pop() || 'jpg'
-            const storagePath = `vinyl-uploads/${user.id}/${ts}-${i}.${ext}`
-
-            // Upload to storage
-            const uploadRes = await fetch(
-              `${SUPABASE_URL}/storage/v1/object/records/${storagePath}`,
-              {
-                method: 'POST',
-                headers: {
-                  'apikey': ANON_KEY,
-                  'Authorization': `Bearer ${accessToken}`,
-                  'Content-Type': file.type || 'image/jpeg',
-                },
-                body: file,
-              }
-            )
-            if (!uploadRes.ok) { console.warn('Upload failed for record', i); continue }
-
-            // Try AI extraction
-            let typedArtist = null, typedAlbum = null
-            try {
-              const extractRes = await fetch(
-                `${SUPABASE_URL}/functions/v1/extract-vinyl-info`,
-                {
-                  method: 'POST',
-                  headers: {
-                    'apikey': ANON_KEY,
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({ image_path: storagePath }),
-                }
-              )
-              if (extractRes.ok) {
-                const info = await extractRes.json()
-                typedArtist = info.artist || null
-                typedAlbum = info.album || null
-              }
-            } catch (e) { console.warn('AI extraction failed:', e) }
-
-            // Create vinyl_records row
-            await fetch(`${SUPABASE_URL}/rest/v1/vinyl_records`, {
-              method: 'POST',
-              headers: {
-                'apikey': ANON_KEY,
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-                'Prefer': 'return=minimal',
-              },
-              body: JSON.stringify({
-                user_id: user.id,
-                event_id: activeEventId,
-                image_url: storagePath,
-                image_path: storagePath,
-                typed_artist: typedArtist,
-                typed_album: typedAlbum,
-              }),
-            })
-          }
-        } catch (e) { console.warn('Record upload error (non-blocking):', e) }
-      }
-
-      // Auto-RSVP (non-blocking)
       if (activeEventId) {
         try {
           await fetch(`${SUPABASE_URL}/rest/v1/rsvps`, {
@@ -347,12 +251,12 @@ export default function NewOnboarding() {
         } catch (e) { console.warn('Auto-RSVP failed (non-blocking):', e) }
       }
 
-      // Done! Navigate to vinyl wall
+      // Done! Navigate to event page
       setSavingStatus('You\'re in! 🎉')
       await new Promise(r => setTimeout(r, 600))
       
       // Force reload to pick up new profile state
-      window.location.href = '/records'
+      window.location.href = '/event'
     } catch (err) {
       console.error('Onboarding error:', err)
       if (err.name === 'AbortError') {
@@ -470,78 +374,9 @@ export default function NewOnboarding() {
     )
   }
 
-  const renderRecordUploadStep = () => (
-    <div className="card" style={{ padding: 24, flex: 1, display: 'flex', flexDirection: 'column' }}>
-      <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8, textAlign: 'center' }}>
-        Now for the fun part 🎶
-      </h2>
-      <p style={{ fontSize: 15, color: 'var(--text-secondary)', textAlign: 'center', marginBottom: 8, lineHeight: 1.5 }}>
-        Upload up to 3 records you're into right now. This is how we match you with music friends and show you who's coming to meetups.
-      </p>
-      <p style={{ fontSize: 13, color: 'var(--text-secondary)', textAlign: 'center', marginBottom: 24, opacity: 0.7 }}>
-        Don't have your records nearby? No worries — you can always add them later.
-      </p>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
-        {[0, 1, 2].map((index) => (
-          <div key={index} style={{ position: 'relative' }}>
-            <input
-              ref={fileInputRefs[index]}
-              type="file"
-              accept=".png,.jpg,.jpeg"
-              onChange={(e) => handleRecordFileChange(index, e)}
-              style={{ display: 'none' }}
-            />
-            <button
-              type="button"
-              onClick={() => fileInputRefs[index].current?.click()}
-              style={{
-                width: '100%', aspectRatio: '1', borderRadius: 12,
-                border: `2px dashed ${recordPreviews[index] ? 'var(--primary-color)' : 'var(--border)'}`,
-                backgroundColor: recordPreviews[index] ? 'transparent' : 'var(--surface)',
-                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                overflow: 'hidden', padding: 0, position: 'relative',
-              }}
-            >
-              {recordPreviews[index] ? (
-                <img src={recordPreviews[index]} alt={`Record ${index + 1}`}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              ) : (
-                <span style={{ fontSize: 32, color: 'var(--text-secondary)', opacity: 0.5 }}>+</span>
-              )}
-            </button>
-            {recordPreviews[index] && (
-              <button type="button" onClick={() => removeRecord(index)}
-                style={{
-                  position: 'absolute', top: -6, right: -6, width: 24, height: 24,
-                  borderRadius: '50%', backgroundColor: '#ef4444', color: 'white',
-                  border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 700,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  lineHeight: 1,
-                }}>
-                ×
-              </button>
-            )}
-          </div>
-        ))}
-      </div>
-
-      <button type="button" onClick={handleNext}
-        style={{
-          background: 'none', border: 'none', color: 'var(--text-secondary)',
-          fontSize: 14, cursor: 'pointer', textDecoration: 'underline', marginTop: 8,
-          padding: 8, alignSelf: 'center',
-        }}>
-        Skip for now
-      </button>
-
-    </div>
-  )
-
   const renderCurrentStep = () => {
     if (currentStep === 0) return renderProfileStep()
     if (currentStep >= 1 && currentStep <= 3) return renderQuestionStep()
-    if (currentStep === 4) return renderRecordUploadStep()
     return null
   }
 

@@ -5,6 +5,7 @@ import { getVinylRecordImageUrl } from '../lib/vinylRecordUpload'
 import { useAuth } from '../context/AuthContext'
 import { generateVibeCard } from '../lib/vibeCard'
 import VinylRecordUpload from '../components/VinylRecordUpload'
+import LoadingSpinner from '../components/LoadingSpinner'
 
 export default function Records() {
   const { user } = useAuth()
@@ -14,13 +15,13 @@ export default function Records() {
   const [records, setRecords] = useState([])
   const [showUpload, setShowUpload] = useState(false)
   const [error, setError] = useState(null)
+  const [totalUploaders, setTotalUploaders] = useState(0)
 
   const loadData = async () => {
     if (!user) return
     setLoading(true)
     setError(null)
 
-    // Get active event
     const { data: ev } = await supabase
       .from('events')
       .select('id, title')
@@ -30,17 +31,6 @@ export default function Records() {
     setEvent(ev)
     if (!ev) { setLoading(false); return }
 
-    // Check if user uploaded
-    const { data: myRecord } = await supabase
-      .from('vinyl_records')
-      .select('id')
-      .eq('event_id', ev.id)
-      .eq('user_id', user.id)
-      .limit(1)
-      .maybeSingle()
-    setHasUploaded(!!myRecord)
-
-    // Load all records for event
     const { data: allRecords, error: recErr } = await supabase
       .from('vinyl_records')
       .select('id, typed_album, typed_artist, image_path, image_url, user_id, created_at, profiles(display_name, music_identity, top_genres, event_intent)')
@@ -52,6 +42,13 @@ export default function Records() {
       setLoading(false)
       return
     }
+
+    // Count unique uploaders
+    const uniqueUsers = new Set((allRecords || []).map(r => r.user_id))
+    setTotalUploaders(uniqueUsers.size)
+
+    const userHasUploaded = (allRecords || []).some(r => r.user_id === user.id)
+    setHasUploaded(userHasUploaded)
 
     const hydrated = await Promise.all(
       (allRecords || []).map(async (r) => {
@@ -76,30 +73,66 @@ export default function Records() {
 
   useEffect(() => { loadData() }, [user])
 
-  if (loading) {
-    return <div style={{ padding: 20 }}><p style={{ color: 'var(--text-secondary)' }}>Loading records...</p></div>
+  if (loading) return <LoadingSpinner />
+
+  // LOCKED STATE: user hasn't uploaded yet
+  if (!hasUploaded) {
+    return (
+      <div style={{ padding: 20, paddingBottom: 100 }}>
+        <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+          <div style={{ fontSize: 64, marginBottom: 16 }}>💿</div>
+          <h1 style={{ fontSize: 26, fontWeight: 700, marginBottom: 12 }}>What are you spinning?</h1>
+          <p style={{ fontSize: 16, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 8 }}>
+            Upload the record you're bringing to see what everyone else is vibing with
+          </p>
+          {totalUploaders > 0 && (
+            <p style={{ fontSize: 14, color: 'var(--primary-color)', fontWeight: 600, marginBottom: 24 }}>
+              🔥 {totalUploaders} {totalUploaders === 1 ? 'person has' : 'people have'} already shared their picks
+            </p>
+          )}
+        </div>
+
+        {/* Blurred preview hint */}
+        {records.length > 0 && (
+          <div style={{ position: 'relative', marginBottom: 24, overflow: 'hidden', borderRadius: 16, height: 160 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, filter: 'blur(12px)', opacity: 0.4, padding: 8 }}>
+              {records.slice(0, 3).map((r, i) => (
+                <div key={i} style={{ aspectRatio: '1', backgroundColor: 'rgba(99,102,241,0.2)', borderRadius: 10, overflow: 'hidden' }}>
+                  {r.imageUrl && <img src={r.imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                </div>
+              ))}
+            </div>
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span style={{ fontSize: 14, color: 'var(--text-secondary)', fontWeight: 500 }}>🔒 Upload to unlock the wall</span>
+            </div>
+          </div>
+        )}
+
+        <div className="card" style={{ padding: 20, textAlign: 'center' }}>
+          <p style={{ fontSize: 15, marginBottom: 16, fontWeight: 600 }}>📸 Share your vinyl pick</p>
+          {event && <VinylRecordUpload eventId={event.id} onSuccess={loadData} />}
+        </div>
+      </div>
+    )
   }
+
+  // UNLOCKED STATE
+  const myRecords = records.filter(r => r.userId === user.id)
+  const otherRecords = records.filter(r => r.userId !== user.id)
 
   return (
     <div style={{ padding: 20, paddingBottom: 100 }}>
       <h1 style={{ fontSize: 24, marginBottom: 8, textAlign: 'center' }}>Vinyl Wall</h1>
-      <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 16, textAlign: 'center' }}>
-        See what everyone's bringing to the meetup.
+      <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 20, textAlign: 'center' }}>
+        See what everyone's bringing to the meetup
       </p>
 
-      {/* Upload section */}
-      {!hasUploaded ? (
-        <div className="card" style={{ padding: 16, marginBottom: 24, textAlign: 'center' }}>
-          <p style={{ fontSize: 15, marginBottom: 12 }}>📸 Upload the vinyl you're bringing</p>
-          {event && <VinylRecordUpload eventId={event.id} onSuccess={loadData} />}
-        </div>
-      ) : (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-          <button onClick={() => setShowUpload(!showUpload)} style={{ flex: 1 }}>
-            {showUpload ? 'Hide Upload' : '+ Upload Another'}
-          </button>
-        </div>
-      )}
+      {/* Add more button */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        <button onClick={() => setShowUpload(!showUpload)} style={{ flex: 1 }}>
+          {showUpload ? 'Hide Upload' : '+ Add Another Record'}
+        </button>
+      </div>
 
       {showUpload && event && (
         <div className="card" style={{ padding: 16, marginBottom: 24 }}>
@@ -113,48 +146,71 @@ export default function Records() {
         </div>
       )}
 
-      {/* Vinyl Wall Grid */}
-      {records.length === 0 ? (
+      {/* Your Picks */}
+      {myRecords.length > 0 && (
+        <>
+          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, color: 'var(--text-secondary)' }}>Your Pick{myRecords.length > 1 ? 's' : ''}</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 24 }}>
+            {myRecords.map((record) => (
+              <RecordCard key={record.id} record={record} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Everyone else */}
+      {otherRecords.length > 0 && (
+        <>
+          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, color: 'var(--text-secondary)' }}>Everyone Else</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+            {otherRecords.map((record) => (
+              <RecordCard key={record.id} record={record} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {records.length === 0 && (
         <div className="card" style={{ padding: 32, textAlign: 'center', color: 'var(--text-secondary)' }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>💿</div>
           <h2 style={{ fontSize: 18, marginBottom: 8, color: 'var(--text-primary)' }}>The wall is empty!</h2>
-          <p style={{ fontSize: 14, lineHeight: 1.5 }}>Be the first to share what you're bringing. Upload your record and get the wall started! 🎶</p>
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
-          {records.map((record) => (
-            <Link to={`/records/${record.id}`} key={record.id} style={{ textDecoration: 'none', color: 'inherit' }}>
-              <div className="card" style={{ padding: 10 }}>
-                <div style={{
-                  width: '100%', aspectRatio: '1', backgroundColor: 'rgba(99,102,241,0.1)',
-                  borderRadius: 10, marginBottom: 8, overflow: 'hidden',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  {record.imageUrl ? (
-                    <img src={record.imageUrl} alt={record.album} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  ) : (
-                    <span style={{ fontSize: 32 }}>🎵</span>
-                  )}
-                </div>
-                <h3 style={{ fontSize: 13, margin: '0 0 2px 0', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {record.album}
-                </h3>
-                <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 6px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {record.artist}
-                </p>
-                <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '0 0 2px 0', fontWeight: 500 }}>
-                  {record.displayName}
-                </p>
-                {record.vibeCard && (
-                  <p className="vibe-card-tag" style={{ fontSize: 10, margin: 0 }}>
-                    {record.vibeCard}
-                  </p>
-                )}
-              </div>
-            </Link>
-          ))}
+          <p style={{ fontSize: 14, lineHeight: 1.5 }}>Be the first to share what you're bringing 🎶</p>
         </div>
       )}
     </div>
+  )
+}
+
+function RecordCard({ record }) {
+  return (
+    <Link to={`/records/${record.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+      <div className="card" style={{ padding: 10 }}>
+        <div style={{
+          width: '100%', aspectRatio: '1', backgroundColor: 'rgba(99,102,241,0.1)',
+          borderRadius: 10, marginBottom: 8, overflow: 'hidden',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          {record.imageUrl ? (
+            <img src={record.imageUrl} alt={record.album} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (
+            <span style={{ fontSize: 32 }}>🎵</span>
+          )}
+        </div>
+        <h3 style={{ fontSize: 13, margin: '0 0 2px 0', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {record.album}
+        </h3>
+        <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 6px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {record.artist}
+        </p>
+        <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '0 0 2px 0', fontWeight: 500 }}>
+          {record.displayName}
+        </p>
+        {record.vibeCard && (
+          <p className="vibe-card-tag" style={{ fontSize: 10, margin: 0 }}>
+            {record.vibeCard}
+          </p>
+        )}
+      </div>
+    </Link>
   )
 }

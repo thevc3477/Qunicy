@@ -16,6 +16,7 @@ export default function Event() {
   const [celebrating, setCelebrating] = useState(false)
   const [rsvpError, setRsvpError] = useState(null)
   const [attendeeCount, setAttendeeCount] = useState(0)
+  const [hasUploadedRecord, setHasUploadedRecord] = useState(null)
 
   useEffect(() => {
     const load = async () => {
@@ -39,6 +40,18 @@ export default function Event() {
           .eq('event_id', data.id)
           .eq('status', 'going')
         setAttendeeCount(count || 0)
+
+        // Check if user has uploaded a record
+        if (user) {
+          const { data: rec } = await supabase
+            .from('vinyl_records')
+            .select('id')
+            .eq('event_id', data.id)
+            .eq('user_id', user.id)
+            .limit(1)
+            .maybeSingle()
+          setHasUploadedRecord(!!rec)
+        }
       }
       setIsLoading(false)
     }
@@ -153,6 +166,24 @@ export default function Event() {
           </button>
         )}
       </div>
+
+      {/* Vinyl Wall nudge */}
+      {isRsvped && hasUploadedRecord === false && (
+        <div className="card" style={{ padding: 20, marginTop: 16, textAlign: 'center', background: 'linear-gradient(135deg, rgba(99,102,241,0.15), rgba(168,85,247,0.15))', border: '1px solid rgba(99,102,241,0.3)' }}>
+          <p style={{ fontSize: 18, fontWeight: 700, margin: '0 0 8px 0' }}>You're in! Now share what you're spinning 👉</p>
+          <p style={{ fontSize: 14, color: 'var(--text-secondary)', margin: '0 0 16px 0' }}>Upload the record you're bringing so others can see your taste</p>
+          <button onClick={() => navigate('/records')} style={{ width: '100%' }}>
+            💿 Go to Vinyl Wall
+          </button>
+        </div>
+      )}
+      {isRsvped && hasUploadedRecord === true && (
+        <div style={{ textAlign: 'center', marginTop: 16 }}>
+          <button onClick={() => navigate('/records')} style={{ background: 'none', border: 'none', color: 'var(--primary-color)', fontSize: 15, cursor: 'pointer', fontWeight: 500 }}>
+            See what everyone's bringing →
+          </button>
+        </div>
+      )}
     </div>
   )
 }
