@@ -13,27 +13,44 @@ export default function Matches() {
     if (!user) return
     setLoading(true)
 
-    // Incoming pending vibes
+    // Incoming pending vibes — fetch vibes then enrich with profiles
     const { data: pending } = await fetchSupabase(
-      `/rest/v1/vibes?receiver_id=eq.${user.id}&status=eq.pending&select=id,sender_id,record_id,created_at,sender:profiles!vibes_sender_id_fkey(display_name),record:vinyl_records(typed_album,typed_artist)&order=created_at.desc`
+      `/rest/v1/vibes?receiver_id=eq.${user.id}&status=eq.pending&select=id,sender_id,record_id,created_at&order=created_at.desc`
     )
-    setPendingVibes(pending || [])
+    // Enrich with sender profiles and record info
+    const enrichedPending = await Promise.all((pending || []).map(async (v) => {
+      const { data: profiles } = await fetchSupabase(`/rest/v1/profiles?id=eq.${v.sender_id}&select=display_name`)
+      const { data: records } = v.record_id
+        ? await fetchSupabase(`/rest/v1/vinyl_records?id=eq.${v.record_id}&select=typed_album,typed_artist`)
+        : { data: [] }
+      return {
+        ...v,
+        sender_name: profiles?.[0]?.display_name || 'Someone',
+        album: records?.[0]?.typed_album || 'a record',
+        artist: records?.[0]?.typed_artist || '',
+      }
+    }))
+    setPendingVibes(enrichedPending)
 
     // Accepted connections
     const { data: accepted } = await fetchSupabase(
-      `/rest/v1/vibes?status=eq.accepted&or=(sender_id.eq.${user.id},receiver_id.eq.${user.id})&select=id,sender_id,receiver_id,record_id,sender:profiles!vibes_sender_id_fkey(display_name),receiver:profiles!vibes_receiver_id_fkey(display_name),record:vinyl_records(typed_album,typed_artist)&order=updated_at.desc`
+      `/rest/v1/vibes?status=eq.accepted&or=(sender_id.eq.${user.id},receiver_id.eq.${user.id})&select=id,sender_id,receiver_id,record_id&order=updated_at.desc`
     )
-
-    const mapped = (accepted || []).map(v => {
-      const issender = v.sender_id === user.id
+    const enrichedAccepted = await Promise.all((accepted || []).map(async (v) => {
+      const otherId = v.sender_id === user.id ? v.receiver_id : v.sender_id
+      const { data: profiles } = await fetchSupabase(`/rest/v1/profiles?id=eq.${otherId}&select=display_name`)
+      const { data: records } = v.record_id
+        ? await fetchSupabase(`/rest/v1/vinyl_records?id=eq.${v.record_id}&select=typed_album,typed_artist`)
+        : { data: [] }
       return {
         id: v.id,
-        otherName: issender ? (v.receiver?.display_name || 'Someone') : (v.sender?.display_name || 'Someone'),
-        album: v.record?.typed_album || '',
-        artist: v.record?.typed_artist || '',
+        otherName: profiles?.[0]?.display_name || 'Someone',
+        album: records?.[0]?.typed_album || '',
+        artist: records?.[0]?.typed_artist || '',
       }
-    })
-    setConnections(mapped)
+    }))
+
+    setConnections(enrichedAccepted)
     setLoading(false)
   }
 
@@ -72,10 +89,10 @@ export default function Matches() {
                   }}>🎵</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <h3 style={{ fontSize: 15, margin: '0 0 2px', fontWeight: 600 }}>
-                      {v.sender?.display_name || 'Someone'}
+                      {v.sender_name}
                     </h3>
                     <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0 }}>
-                      vibed on {v.record?.typed_album || 'a record'} — {v.record?.typed_artist || ''}
+                      vibed on {v.album} — {v.artist}
                     </p>
                   </div>
                 </div>

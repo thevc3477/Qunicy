@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { getVinylRecordImageUrl } from '../lib/vinylRecordUpload'
 import { useAuth } from '../context/AuthContext'
 import { generateVibeCard } from '../lib/vibeCard'
+import { fetchSupabase } from '../lib/fetchSupabase'
 import VinylRecordUpload from '../components/VinylRecordUpload'
 import LoadingSpinner from '../components/LoadingSpinner'
 
@@ -50,20 +51,33 @@ export default function Records() {
     const userHasUploaded = (allRecords || []).some(r => r.user_id === user.id)
     setHasUploaded(userHasUploaded)
 
+    // Build a profile cache for display names (in case FK join doesn't work)
+    const userIds = [...new Set((allRecords || []).map(r => r.user_id))]
+    const profileCache = {}
+    if (userIds.length > 0) {
+      const { data: profiles } = await fetchSupabase(
+        `/rest/v1/profiles?id=in.(${userIds.join(',')})&select=id,display_name,music_identity,top_genres,event_intent`
+      )
+      for (const p of (profiles || [])) {
+        profileCache[p.id] = p
+      }
+    }
+
     const hydrated = await Promise.all(
       (allRecords || []).map(async (r) => {
         const imgPath = r.image_url || r.image_path
         if (!imgPath) return null
         const { url } = await getVinylRecordImageUrl(imgPath)
         if (!url) return null
+        const profile = r.profiles || profileCache[r.user_id] || {}
         return {
           id: r.id,
           album: r.typed_album || '',
           artist: r.typed_artist || '',
           imageUrl: url,
           userId: r.user_id,
-          displayName: r.profiles?.display_name || 'Vinyl lover',
-          vibeCard: generateVibeCard(r.profiles),
+          displayName: profile.display_name || 'Vinyl lover',
+          vibeCard: generateVibeCard(profile),
         }
       })
     )
@@ -196,14 +210,14 @@ function RecordCard({ record }) {
             <span style={{ fontSize: 32 }}>🎵</span>
           )}
         </div>
+        <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--primary-color, #8b5cf6)', margin: '0 0 4px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {record.displayName}
+        </p>
         <h3 style={{ fontSize: 13, margin: '0 0 2px 0', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {record.album}
         </h3>
-        <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 6px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 4px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {record.artist}
-        </p>
-        <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '0 0 2px 0', fontWeight: 500 }}>
-          {record.displayName}
         </p>
         {record.vibeCard && (
           <p className="vibe-card-tag" style={{ fontSize: 10, margin: 0 }}>
