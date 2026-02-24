@@ -2,6 +2,8 @@ import { Link, useParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { getVinylRecordImageUrl } from '../lib/vinylRecordUpload'
+import { useAuth } from '../context/AuthContext'
+import { fetchSupabase } from '../lib/fetchSupabase'
 
 const formatHandle = (value) => {
   const trimmed = (value || '').trim()
@@ -11,21 +13,23 @@ const formatHandle = (value) => {
 
 export default function RecordDetail() {
   const { id } = useParams()
+  const { user } = useAuth()
   const [record, setRecord] = useState(null)
   const [imageUrl, setImageUrl] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
+  // Vibe state
+  const [vibeStatus, setVibeStatus] = useState(null) // null | 'pending' | 'accepted' | 'declined'
+  const [vibeSending, setVibeSending] = useState(false)
+
   useEffect(() => {
     const loadRecord = async () => {
-      if (!id) {
-        setLoading(false)
-        return
-      }
+      if (!id) { setLoading(false); return }
 
       const { data, error: recordError } = await supabase
         .from('vinyl_records')
-        .select('id, typed_album, typed_artist, image_path, user_id, profiles(display_name)')
+        .select('id, typed_album, typed_artist, image_path, user_id, event_id, profiles(display_name)')
         .eq('id', id)
         .maybeSingle()
 
@@ -36,10 +40,7 @@ export default function RecordDetail() {
         return
       }
 
-      if (!data) {
-        setLoading(false)
-        return
-      }
+      if (!data) { setLoading(false); return }
 
       setRecord({
         id: data.id,
@@ -47,6 +48,8 @@ export default function RecordDetail() {
         artist: data.typed_artist || '',
         displayName: data.profiles?.display_name || '',
         imagePath: data.image_path || '',
+        userId: data.user_id,
+        eventId: data.event_id,
       })
 
       if (data.image_path) {
@@ -54,11 +57,54 @@ export default function RecordDetail() {
         setImageUrl(url)
       }
 
+      // Check existing vibe
+      if (user && data.user_id !== user.id && data.event_id) {
+        const { data: vibes } = await fetchSupabase(
+          `/rest/v1/vibes?sender_id=eq.${user.id}&receiver_id=eq.${data.user_id}&event_id=eq.${data.event_id}&select=status`
+        )
+        if (vibes?.length > 0) {
+          setVibeStatus(vibes[0].status)
+        }
+      }
+
       setLoading(false)
     }
 
     loadRecord()
-  }, [id])
+  }, [id, user])
+
+  const sendVibe = async () => {
+    if (!user || !record || vibeSending) return
+    setVibeSending(true)
+
+    const { data, error: vibeErr } = await fetchSupabase('/rest/v1/vibes', {
+      method: 'POST',
+      headers: { 'Prefer': 'return=representation,resolution=merge-duplicates' },
+      body: {
+        sender_id: user.id,
+        receiver_id: record.userId,
+        record_id: record.id,
+        event_id: record.eventId,
+      },
+    })
+
+    if (!vibeErr && data?.length > 0) {
+      setVibeStatus(data[0].status)
+    } else if (!vibeErr) {
+      setVibeStatus('pending')
+    }
+    setVibeSending(false)
+  }
+
+  const isOwnRecord = user && record && record.userId === user.id
+  const showVibeButton = user && record && !isOwnRecord
+
+  const vibeButtonLabel = vibeStatus === 'accepted' ? 'Vibing 🎶'
+    : vibeStatus === 'pending' ? 'Vibe Sent! ✨'
+    : vibeStatus === 'declined' ? 'Vibe Sent! ✨'
+    : 'Send a Vibe 🎵'
+
+  const vibeButtonDisabled = vibeSending || vibeStatus === 'pending' || vibeStatus === 'accepted' || vibeStatus === 'declined'
 
   return (
     <div style={{ padding: 20 }}>
@@ -106,6 +152,30 @@ export default function RecordDetail() {
                 <p style={{ fontSize: 16, fontWeight: 600 }}>{formatHandle(record.displayName)}</p>
               </div>
             </div>
+
+            {/* Send a Vibe button */}
+            {showVibeButton && (
+              <button
+                onClick={sendVibe}
+                disabled={vibeButtonDisabled}
+                style={{
+                  width: '100%',
+                  padding: '16px 20px',
+                  fontSize: 16,
+                  fontWeight: 600,
+                  borderRadius: 12,
+                  border: 'none',
+                  backgroundColor: vibeStatus === 'accepted' ? '#10b981'
+                    : vibeStatus === 'pending' || vibeStatus === 'declined' ? '#6b7280'
+                    : '#8b5cf6',
+                  color: 'white',
+                  cursor: vibeButtonDisabled ? 'default' : 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                {vibeSending ? 'Sending...' : vibeButtonLabel}
+              </button>
+            )}
           </>
         ) : (
           <div className="card" style={{ padding: 16 }}>

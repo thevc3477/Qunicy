@@ -110,7 +110,7 @@ export default function Records() {
 
         <div className="card" style={{ padding: 20, textAlign: 'center' }}>
           <p style={{ fontSize: 15, marginBottom: 16, fontWeight: 600 }}>📸 Share your vinyl pick</p>
-          {event && <VinylRecordUpload eventId={event.id} onSuccess={loadData} />}
+          {event && <VinylRecordUpload eventId={event.id} userId={user?.id} onSuccess={loadData} />}
         </div>
       </div>
     )
@@ -136,7 +136,7 @@ export default function Records() {
 
       {showUpload && event && (
         <div className="card" style={{ padding: 16, marginBottom: 24 }}>
-          <VinylRecordUpload eventId={event.id} onSuccess={() => { loadData(); setShowUpload(false) }} />
+          <VinylRecordUpload eventId={event.id} userId={user?.id} onSuccess={() => { loadData(); setShowUpload(false) }} />
         </div>
       )}
 

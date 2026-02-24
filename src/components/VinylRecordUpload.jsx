@@ -1,9 +1,7 @@
-import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+import { useState } from 'react'
 import { uploadVinylRecord, getVinylRecordImageUrl } from '../lib/vinylRecordUpload'
 
-export default function VinylRecordUpload({ eventId, onSuccess }) {
-  const [user, setUser] = useState(null)
+export default function VinylRecordUpload({ eventId, userId, onSuccess }) {
   const [loading, setLoading] = useState(false)
   const [uploadedRecord, setUploadedRecord] = useState(null)
   const [imageUrl, setImageUrl] = useState(null)
@@ -17,15 +15,6 @@ export default function VinylRecordUpload({ eventId, onSuccess }) {
   const [extracting, setExtracting] = useState(false)
   const [extractionError, setExtractionError] = useState(null)
   const [extractionComplete, setExtractionComplete] = useState(false)
-
-  // Get current user
-  useEffect(() => {
-    const getUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      setUser(session?.user || null)
-    }
-    getUser()
-  }, [])
 
   // Compress image for AI processing
   const compressImage = (file, maxWidth = 800, quality = 0.7) => {
@@ -60,8 +49,8 @@ export default function VinylRecordUpload({ eventId, onSuccess }) {
     setExtractionComplete(false)
     
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://ailkqrjqiuemdkdtgewc.supabase.co'
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpbGtxcmpxaXVlbWRrZHRnZXdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc2NjM4NjMsImV4cCI6MjA4MzIzOTg2M30.OtMZf_33oo1Vj1OCEgnua7n-w4Q-4ko-qErSh19DT5Q'
 
       const response = await fetch(`${supabaseUrl}/functions/v1/extract-vinyl-info`, {
         method: 'POST',
@@ -122,7 +111,7 @@ export default function VinylRecordUpload({ eventId, onSuccess }) {
   const handleUpload = async () => {
     setError(null)
 
-    if (!user) {
+    if (!userId) {
       setError('You must be logged in to upload')
       return
     }
@@ -142,7 +131,7 @@ export default function VinylRecordUpload({ eventId, onSuccess }) {
     const result = await uploadVinylRecord({
       imageFile: selectedFile,
       eventId: eventId,
-      userId: user.id,
+      userId: userId,
       typedArtist: typedArtist.trim(),
       typedAlbum: typedAlbum.trim()
     })
@@ -174,7 +163,7 @@ export default function VinylRecordUpload({ eventId, onSuccess }) {
     setLoading(false)
   }
 
-  if (!user) {
+  if (!userId) {
     return (
       <div style={{ padding: 20, textAlign: 'center' }}>
         <p style={{ color: 'var(--text-secondary)' }}>

@@ -108,14 +108,14 @@ export default function App() {
           <Route path="/event" element={<Event />} />
           <Route path="/me" element={<MyProfile />} />
           <Route path="/people/:id" element={<ProfileDetail />} />
+          <Route path="/matches" element={<Matches />} />
+          <Route path="/chat/:matchId" element={<Chat />} />
         </Route>
 
         {/* Requires RSVP */}
         <Route element={<RequireRsvp />}>
           <Route path="/records" element={<Records />} />
           <Route path="/records/:id" element={<RecordDetail />} />
-          <Route path="/matches" element={<Matches />} />
-          <Route path="/chat/:matchId" element={<Chat />} />
         </Route>
       </Routes>
     </AppShell>

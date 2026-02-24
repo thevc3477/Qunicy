@@ -2,56 +2,45 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { fetchSupabase } from '../lib/fetchSupabase'
 
 export default function Chat() {
-  const { matchId } = useParams()
+  const { matchId: vibeId } = useParams()
   const navigate = useNavigate()
   const { user, profile } = useAuth()
   const [messages, setMessages] = useState([])
   const [newMessage, setNewMessage] = useState('')
   const [otherUser, setOtherUser] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [iceBreaker, setIceBreaker] = useState(null)
+  const [accessDenied, setAccessDenied] = useState(false)
   const bottomRef = useRef(null)
 
   useEffect(() => {
-    if (!user || !matchId) return
+    if (!user || !vibeId) return
 
     const load = async () => {
-      // Get match info
-      const { data: match } = await supabase
-        .from('matches')
-        .select('id, user_a, user_b')
-        .eq('id', matchId)
-        .maybeSingle()
-
-      if (!match) { setLoading(false); return }
-
-      const otherId = match.user_a === user.id ? match.user_b : match.user_a
-      const { data: otherProfile } = await supabase
-        .from('profiles')
-        .select('display_name, top_genres, music_identity')
-        .eq('id', otherId)
-        .maybeSingle()
-
-      setOtherUser(otherProfile)
-
-      // Generate ice breaker from shared genres
-      if (profile?.top_genres && otherProfile?.top_genres) {
-        const shared = profile.top_genres.filter(g => otherProfile.top_genres?.includes(g))
-        if (shared.length > 0) {
-          const genreLabels = shared.map(g => g.replace('_', '/'))
-          setIceBreaker(`You both vibe with ${genreLabels.join(' & ')}! 🎵`)
-        }
+      // Load vibe
+      const { data: vibes } = await fetchSupabase(
+        `/rest/v1/vibes?id=eq.${vibeId}&select=id,sender_id,receiver_id,status`
+      )
+      const vibe = vibes?.[0]
+      if (!vibe || vibe.status !== 'accepted') {
+        setAccessDenied(true)
+        setLoading(false)
+        return
       }
 
-      // Load existing messages
-      const { data: msgs } = await supabase
-        .from('messages')
-        .select('id, sender_id, content, created_at')
-        .eq('match_id', matchId)
-        .order('created_at', { ascending: true })
+      const otherId = vibe.sender_id === user.id ? vibe.receiver_id : vibe.sender_id
+      const { data: profiles } = await fetchSupabase(
+        `/rest/v1/profiles?id=eq.${otherId}&select=display_name,top_genres,music_identity`
+      )
+      const otherProfile = profiles?.[0]
+      setOtherUser(otherProfile)
 
+      // Load messages
+      const { data: msgs } = await fetchSupabase(
+        `/rest/v1/messages?vibe_id=eq.${vibeId}&select=id,sender_id,content,created_at&order=created_at.asc`
+      )
       setMessages(msgs || [])
       setLoading(false)
     }
@@ -59,19 +48,19 @@ export default function Chat() {
 
     // Subscribe to realtime
     const channel = supabase
-      .channel(`messages:${matchId}`)
+      .channel(`messages:${vibeId}`)
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
         table: 'messages',
-        filter: `match_id=eq.${matchId}`,
+        filter: `vibe_id=eq.${vibeId}`,
       }, (payload) => {
         setMessages(prev => [...prev, payload.new])
       })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [user, matchId])
+  }, [user, vibeId])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -84,16 +73,29 @@ export default function Chat() {
     const content = newMessage.trim()
     setNewMessage('')
 
-    await supabase.from('messages').insert({
-      match_id: matchId,
-      sender_id: user.id,
-      content,
+    await fetchSupabase('/rest/v1/messages', {
+      method: 'POST',
+      body: {
+        vibe_id: vibeId,
+        sender_id: user.id,
+        content,
+      },
     })
   }
 
   const formatTime = (ts) => {
     if (!ts) return ''
     return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+
+  if (accessDenied) {
+    return (
+      <div style={{ padding: 20, textAlign: 'center' }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
+        <p style={{ color: 'var(--text-secondary)' }}>This chat isn't available.</p>
+        <button onClick={() => navigate('/matches')} style={{ marginTop: 16 }}>Back to Connections</button>
+      </div>
+    )
   }
 
   return (
@@ -112,13 +114,6 @@ export default function Chat() {
 
       {/* Messages */}
       <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {/* Ice breaker */}
-        {iceBreaker && (
-          <div style={{ textAlign: 'center', padding: '12px 16px', backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 12, fontSize: 13, color: '#FFFFFF', marginBottom: 8 }}>
-            {iceBreaker}
-          </div>
-        )}
-
         {loading ? (
           <p style={{ color: 'var(--text-secondary)', textAlign: 'center' }}>Loading...</p>
         ) : messages.length === 0 ? (
