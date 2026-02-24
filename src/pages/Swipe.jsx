@@ -24,11 +24,10 @@ export default function Swipe() {
         .from('events').select('id').eq('is_active', true).limit(1).maybeSingle()
       if (!event) { setLoading(false); return }
 
-      // Check if user has uploaded a record
+      // Check if user has uploaded any record (not just for this event)
       const { data: myRecord } = await supabase
         .from('vinyl_records')
         .select('id')
-        .eq('event_id', event.id)
         .eq('user_id', user.id)
         .limit(1)
         .maybeSingle()

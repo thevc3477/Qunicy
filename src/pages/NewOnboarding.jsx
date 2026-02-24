@@ -247,12 +247,112 @@ export default function NewOnboarding() {
         throw new Error('Save did not complete properly. Please try again.')
       }
 
-      // Done! Navigate to event page
+      // Upload vinyl records (non-blocking)
+      const actualRecordFiles = recordFiles.filter(Boolean)
+      let activeEventId = null
+      try {
+        const evRes = await fetch(
+          `${SUPABASE_URL}/rest/v1/events?is_active=eq.true&select=id&limit=1`,
+          { headers: { 'apikey': ANON_KEY, 'Authorization': `Bearer ${accessToken}` } }
+        )
+        const evData = await evRes.json()
+        if (evData?.[0]?.id) activeEventId = evData[0].id
+      } catch (e) { console.warn('Failed to get active event:', e) }
+
+      if (actualRecordFiles.length > 0 && activeEventId) {
+        setSavingStatus('Uploading your records...')
+        try {
+          const ts = Date.now()
+          for (let i = 0; i < actualRecordFiles.length; i++) {
+            const file = actualRecordFiles[i]
+            const ext = file.name.split('.').pop() || 'jpg'
+            const storagePath = `vinyl-uploads/${user.id}/${ts}-${i}.${ext}`
+
+            // Upload to storage
+            const uploadRes = await fetch(
+              `${SUPABASE_URL}/storage/v1/object/records/${storagePath}`,
+              {
+                method: 'POST',
+                headers: {
+                  'apikey': ANON_KEY,
+                  'Authorization': `Bearer ${accessToken}`,
+                  'Content-Type': file.type || 'image/jpeg',
+                },
+                body: file,
+              }
+            )
+            if (!uploadRes.ok) { console.warn('Upload failed for record', i); continue }
+
+            // Try AI extraction
+            let typedArtist = null, typedAlbum = null
+            try {
+              const extractRes = await fetch(
+                `${SUPABASE_URL}/functions/v1/extract-vinyl-info`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'apikey': ANON_KEY,
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({ image_path: storagePath }),
+                }
+              )
+              if (extractRes.ok) {
+                const info = await extractRes.json()
+                typedArtist = info.artist || null
+                typedAlbum = info.album || null
+              }
+            } catch (e) { console.warn('AI extraction failed:', e) }
+
+            // Create vinyl_records row
+            await fetch(`${SUPABASE_URL}/rest/v1/vinyl_records`, {
+              method: 'POST',
+              headers: {
+                'apikey': ANON_KEY,
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'Prefer': 'return=minimal',
+              },
+              body: JSON.stringify({
+                user_id: user.id,
+                event_id: activeEventId,
+                image_url: storagePath,
+                image_path: storagePath,
+                typed_artist: typedArtist,
+                typed_album: typedAlbum,
+              }),
+            })
+          }
+        } catch (e) { console.warn('Record upload error (non-blocking):', e) }
+      }
+
+      // Auto-RSVP (non-blocking)
+      if (activeEventId) {
+        try {
+          await fetch(`${SUPABASE_URL}/rest/v1/rsvps`, {
+            method: 'POST',
+            headers: {
+              'apikey': ANON_KEY,
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+              'Prefer': 'resolution=merge-duplicates,return=minimal',
+            },
+            body: JSON.stringify({
+              user_id: user.id,
+              event_id: activeEventId,
+              status: 'going',
+            }),
+          })
+        } catch (e) { console.warn('Auto-RSVP failed (non-blocking):', e) }
+      }
+
+      // Done! Navigate to vinyl wall
       setSavingStatus('You\'re in! 🎉')
       await new Promise(r => setTimeout(r, 600))
       
       // Force reload to pick up new profile state
-      window.location.href = '/event'
+      window.location.href = '/records'
     } catch (err) {
       console.error('Onboarding error:', err)
       if (err.name === 'AbortError') {

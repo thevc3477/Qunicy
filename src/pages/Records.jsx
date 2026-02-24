@@ -43,7 +43,7 @@ export default function Records() {
     // Load all records for event
     const { data: allRecords, error: recErr } = await supabase
       .from('vinyl_records')
-      .select('id, typed_album, typed_artist, image_path, user_id, created_at, profiles(display_name, music_identity, top_genres, event_intent)')
+      .select('id, typed_album, typed_artist, image_path, image_url, user_id, created_at, profiles(display_name, music_identity, top_genres, event_intent)')
       .eq('event_id', ev.id)
       .order('created_at', { ascending: false })
 
@@ -55,8 +55,9 @@ export default function Records() {
 
     const hydrated = await Promise.all(
       (allRecords || []).map(async (r) => {
-        if (!r.image_path) return null
-        const { url } = await getVinylRecordImageUrl(r.image_path)
+        const imgPath = r.image_url || r.image_path
+        if (!imgPath) return null
+        const { url } = await getVinylRecordImageUrl(imgPath)
         if (!url) return null
         return {
           id: r.id,
@@ -64,7 +65,7 @@ export default function Records() {
           artist: r.typed_artist || '',
           imageUrl: url,
           userId: r.user_id,
-          displayName: r.profiles?.display_name || 'A collector',
+          displayName: r.profiles?.display_name || 'Vinyl lover',
           vibeCard: generateVibeCard(r.profiles),
         }
       })
